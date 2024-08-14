@@ -37,6 +37,7 @@
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/catalog/duck_catalog.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -71,18 +72,26 @@ SchemaCatalogEntry &Binder::BindSchema(CreateInfo &info) {
 	if (IsInvalidCatalog(info.catalog) && info.temporary) {
 		info.catalog = TEMP_CATALOG;
 	}
+	//TODO catalog_search_path的初始化
 	auto &search_path = ClientData::Get(context).catalog_search_path;
+	std::cout << "Print catalog search path" << std::endl;
+	for (int i = 0; i < search_path->Get().size(); i++) {
+		std::cout << search_path->Get()[i].ToString() << std::endl;
+	}
+
+	// 如果 catalog 和 schema 都是空
 	if (IsInvalidCatalog(info.catalog) && IsInvalidSchema(info.schema)) {
 		auto &default_entry = search_path->GetDefault();
 		info.catalog = default_entry.catalog;
 		info.schema = default_entry.schema;
+		std::cout << "get default  catalog : " << info.catalog << "\tschema : " << info.schema << std::endl;
 	} else if (IsInvalidSchema(info.schema)) {
 		info.schema = search_path->GetDefaultSchema(info.catalog);
 	} else if (IsInvalidCatalog(info.catalog)) {
 		info.catalog = search_path->GetDefaultCatalog(info.schema);
 	}
 	if (IsInvalidCatalog(info.catalog)) {
-		info.catalog = DatabaseManager::GetDefaultDatabase(context);
+		info.catalog = DatabaseManager::GetDefaultDatabase(context); // memory
 	}
 	if (!info.temporary) {
 		// non-temporary create: not read only
@@ -96,9 +105,12 @@ SchemaCatalogEntry &Binder::BindSchema(CreateInfo &info) {
 	}
 	// fetch the schema in which we want to create the object
 	auto &schema_obj = Catalog::GetSchema(context, info.catalog, info.schema);
+	std::cout << "Binder::BindSchema fetch schema catalogentry : " << int(schema_obj.type) << std::endl;
 	D_ASSERT(schema_obj.type == CatalogType::SCHEMA_ENTRY);
 	info.schema = schema_obj.name;
+	std::cout << "Binder::BindSchema schema : " << schema_obj.name << "\t sql : " <<  schema_obj.ToSQL() << std::endl;
 	if (!info.temporary) {
+		std::cout << "Binder::BindSchema catalog name : " << schema_obj.catalog.GetName() << std::endl;
 		properties.modified_databases.insert(schema_obj.catalog.GetName());
 	}
 	return schema_obj;
@@ -209,6 +221,7 @@ SchemaCatalogEntry &Binder::BindCreateFunctionInfo(CreateInfo &info) {
 
 void Binder::BindLogicalType(ClientContext &context, LogicalType &type, optional_ptr<Catalog> catalog,
                              const string &schema) {
+	std::cout << "Binder::BindLogicalType type.id : " << int(type.id()) << std::endl;
 	if (type.id() == LogicalTypeId::LIST || type.id() == LogicalTypeId::MAP) {
 		auto child_type = ListType::GetChildType(type);
 		BindLogicalType(context, child_type, catalog, schema);
@@ -537,6 +550,7 @@ BoundStatement Binder::Bind(CreateStatement &stmt) {
 		auto &create_info = stmt.info->Cast<CreateTableInfo>();
 		// If there is a foreign key constraint, resolve primary key column's index from primary key column's name
 		reference_set_t<SchemaCatalogEntry> fk_schemas;
+		std::cout << "create table constraints size : " << create_info.constraints.size() << std::endl;
 		for (idx_t i = 0; i < create_info.constraints.size(); i++) {
 			auto &cond = create_info.constraints[i];
 			if (cond->type != ConstraintType::FOREIGN_KEY) {
@@ -581,6 +595,7 @@ BoundStatement Binder::Bind(CreateStatement &stmt) {
 			throw BinderException("Constraints on generated columns are not supported yet");
 		}
 		auto bound_info = BindCreateTableInfo(std::move(stmt.info));
+		// 这里root = nullptr,这里处理的是Create Table for Query的场景
 		auto root = std::move(bound_info->query);
 		for (auto &fk_schema : fk_schemas) {
 			if (&fk_schema.get() != &bound_info->schema) {

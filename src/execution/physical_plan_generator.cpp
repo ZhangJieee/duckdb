@@ -10,6 +10,8 @@
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
 #include "duckdb/planner/operator/list.hpp"
 
+#include <iostream>
+
 namespace duckdb {
 
 class DependencyExtractor : public LogicalOperatorVisitor {
@@ -42,22 +44,32 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(unique_ptr<Logica
 	// first resolve column references
 	profiler.StartPhase("column_binding");
 	ColumnBindingResolver resolver;
+	// LOGICAL_PROJECTION   = 1   for select * from [table name]
+	// LOGICAL_CREATE_TABLE = 126 for create table [table name]([column name] [column type], ...)
+	// LOGICAL_INSERT       = 100 for insert into [table name] values (1, 2)
+	std::cout << "op" << int(op->type) << std::endl;
+	std::cout << "print logical operator : \n" << op->ToString() << std::endl;
 	resolver.VisitOperator(*op);
 	profiler.EndPhase();
 
 	// now resolve types of all the operators
 	profiler.StartPhase("resolve_types");
+	// resolve return type of logical operator
 	op->ResolveOperatorTypes();
 	profiler.EndPhase();
 
+	std::cout << "before DependencyExtractor" << std::endl;
 	// extract dependencies from the logical plan
 	DependencyExtractor extractor(dependencies);
 	extractor.VisitOperator(*op);
+	std::cout << "after DependencyExtractor" << std::endl;
 
 	// then create the main physical plan
 	profiler.StartPhase("create_plan");
 	auto plan = CreatePlan(*op);
 	profiler.EndPhase();
+	std::cout << "Print Physical Query Plan : " << std::endl;
+	plan->Print();
 
 	plan->Verify();
 	return plan;

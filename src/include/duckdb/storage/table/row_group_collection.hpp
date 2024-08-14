@@ -27,6 +27,7 @@ class DuckTransaction;
 class BoundConstraint;
 class RowGroupSegmentTree;
 
+// 该类保存了一张表中的所有row信息
 class RowGroupCollection {
 public:
 	RowGroupCollection(shared_ptr<DataTableInfo> info, BlockManager &block_manager, vector<LogicalType> types,
@@ -123,7 +124,7 @@ private:
 	//! The column types of the row group collection
 	vector<LogicalType> types;
 	idx_t row_start;
-	//! The segment trees holding the various row_groups of the table
+	//! The segment trees holding the various row_groups of the table /// 所有的数据在这里以segment block的方式连续存储
 	shared_ptr<RowGroupSegmentTree> row_groups;
 	//! Table statistics
 	TableStatistics stats;

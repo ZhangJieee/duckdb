@@ -173,6 +173,7 @@ OperatorResultType PerfectHashJoinExecutor::ProbePerfectHashTable(ExecutionConte
 	idx_t probe_sel_count = 0;
 
 	// fetch the join keys from the chunk
+	// 获取左表行信息
 	state.join_keys.Reset();
 	state.probe_executor.Execute(input, state.join_keys);
 	// select the keys that are in the min-max range
@@ -196,6 +197,7 @@ OperatorResultType PerfectHashJoinExecutor::ProbePerfectHashTable(ExecutionConte
 		result_vector.Reference(build_vec);
 		result_vector.Slice(state.build_sel_vec, probe_sel_count);
 	}
+	std::cout << "probe end : " << result.ToString() << std::endl;
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 

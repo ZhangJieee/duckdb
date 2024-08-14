@@ -98,6 +98,10 @@ private:
 		}
 	}
 
+	// 循环处理每行的数据聚合处理,向量化优化代码:
+	// 1.大量使用模版,对数据的类型和长度进行分派 --> 在执行时,数组的类型和长度已知,消除分支跳转语句
+	// 2.大量使用内联 --> 消除函数调用(这里的OP::template Operation方法类内部定义,编译器会标记为inline)
+	// 3.不使用虚函数 --> 这里基类和派生类中基本都是static方法
 	template <class STATE_TYPE, class INPUT_TYPE, class OP>
 	static inline void UnaryFlatUpdateLoop(INPUT_TYPE *__restrict idata, AggregateInputData &aggr_input_data,
 	                                       STATE_TYPE *__restrict state, idx_t count, ValidityMask &mask) {

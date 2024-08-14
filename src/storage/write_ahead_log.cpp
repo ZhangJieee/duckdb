@@ -8,6 +8,7 @@
 #include "duckdb/main/database.hpp"
 #include "duckdb/parser/parsed_data/alter_table_info.hpp"
 #include <cstring>
+#include <iostream>
 
 namespace duckdb {
 
@@ -60,6 +61,7 @@ void WriteAheadLog::WriteCreateTable(const TableCatalogEntry &entry) {
 	if (skip_writing) {
 		return;
 	}
+	std::cout << "WAL write Create table" << std::endl;
 	writer->Write<WALType>(WALType::CREATE_TABLE);
 	entry.Serialize(*writer);
 }

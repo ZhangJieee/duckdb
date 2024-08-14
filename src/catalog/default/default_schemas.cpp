@@ -1,6 +1,7 @@
 #include "duckdb/catalog/default/default_schemas.hpp"
 #include "duckdb/catalog/catalog_entry/duck_schema_entry.hpp"
 #include "duckdb/common/string_util.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -24,6 +25,7 @@ DefaultSchemaGenerator::DefaultSchemaGenerator(Catalog &catalog) : DefaultGenera
 }
 
 unique_ptr<CatalogEntry> DefaultSchemaGenerator::CreateDefaultEntry(ClientContext &context, const string &entry_name) {
+	std::cout << "DefaultSchemaGenerator::CreateDefaultEntry" << std::endl;
 	if (GetDefaultSchema(entry_name)) {
 		return make_uniq_base<CatalogEntry, DuckSchemaEntry>(catalog, StringUtil::Lower(entry_name), true);
 	}

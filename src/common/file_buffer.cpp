@@ -74,6 +74,7 @@ FileBuffer::MemoryRequirement FileBuffer::CalculateMemory(uint64_t user_size) {
 }
 
 void FileBuffer::Resize(uint64_t new_size) {
+	// 这里获取一个block实例的内存大小
 	auto req = CalculateMemory(new_size);
 	ReallocBuffer(req.alloc_size);
 

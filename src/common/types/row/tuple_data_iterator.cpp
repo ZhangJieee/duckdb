@@ -36,6 +36,7 @@ TupleDataChunkIterator::TupleDataChunkIterator(TupleDataCollection &collection_p
 
 void TupleDataChunkIterator::InitializeCurrentChunk() {
 	auto &segment = collection.segments[current_segment_idx];
+	// 内部会根据pin state处理所有的block handle,比如在构建global HT阶段,这里更新pin state = keep pin,会将当前segment下所有的block handle记录到pined map中
 	segment.allocator->InitializeChunkState(segment, state.pin_state, state.chunk_state, current_chunk_idx, init_heap);
 }
 

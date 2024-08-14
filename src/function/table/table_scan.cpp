@@ -60,18 +60,24 @@ struct TableScanGlobalState : public GlobalTableFunctionState {
 		return !projection_ids.empty();
 	}
 };
-
+// 初始化 Physical Operator (PhysicalTableScan) 的local source state
 static unique_ptr<LocalTableFunctionState> TableScanInitLocal(ExecutionContext &context, TableFunctionInitInput &input,
                                                               GlobalTableFunctionState *gstate) {
 	auto result = make_uniq<TableScanLocalState>();
 	auto &bind_data = input.bind_data->Cast<TableScanBindData>();
+	// 这里将逻辑 col index -> 物理 col index
 	vector<column_t> column_ids = input.column_ids;
 	for (auto &col : column_ids) {
 		auto storage_idx = GetStorageIndex(bind_data.table, col);
 		col = storage_idx;
 	}
+
+	// 初始化 TableScanState
 	result->scan_state.Initialize(std::move(column_ids), input.filters.get());
+
+	// 初始化 row scan & column scan
 	TableScanParallelStateNext(context.client, input.bind_data.get(), result.get(), gstate);
+	std::cout << "TableScanInitLocal : CanRemoveFilterColumns = " << input.CanRemoveFilterColumns() << std::endl;
 	if (input.CanRemoveFilterColumns()) {
 		auto &tsgs = gstate->Cast<TableScanGlobalState>();
 		result->all_columns.Initialize(context.client, tsgs.scanned_types);
@@ -85,6 +91,7 @@ unique_ptr<GlobalTableFunctionState> TableScanInitGlobal(ClientContext &context,
 	auto &bind_data = input.bind_data->Cast<TableScanBindData>();
 	auto result = make_uniq<TableScanGlobalState>(context, input.bind_data.get());
 	bind_data.table.GetStorage().InitializeParallelScan(context, result->state);
+	std::cout << "TableScanInitGlobal input.CanRemoveFilterColumns() = " << input.CanRemoveFilterColumns() << std::endl;
 	if (input.CanRemoveFilterColumns()) {
 		result->projection_ids = input.projection_ids;
 		const auto &columns = bind_data.table.GetColumns();
@@ -110,12 +117,14 @@ static unique_ptr<BaseStatistics> TableScanStatistics(ClientContext &context, co
 	return bind_data.table.GetStatistics(context, column_id);
 }
 
+// 这里开始从物理存储中读取数据
 static void TableScanFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &bind_data = data_p.bind_data->Cast<TableScanBindData>();
 	auto &gstate = data_p.global_state->Cast<TableScanGlobalState>();
 	auto &state = data_p.local_state->Cast<TableScanLocalState>();
 	auto &transaction = DuckTransaction::Get(context, bind_data.table.catalog);
 	auto &storage = bind_data.table.GetStorage();
+	std::cout << "gstate projection ids : " << gstate.projection_ids.size() << std::endl;
 	do {
 		if (bind_data.is_create_index) {
 			storage.CreateIndexScan(state.scan_state, output,
@@ -126,10 +135,13 @@ static void TableScanFunc(ClientContext &context, TableFunctionInput &data_p, Da
 			output.ReferenceColumns(state.all_columns, gstate.projection_ids);
 		} else {
 			storage.Scan(transaction, output, state.scan_state);
+			std::cout << "TableScanFunc result : " << output.ToString() << std::endl;
 		}
 		if (output.size() > 0) {
 			return;
 		}
+
+		// 当前的RowGroup数据已经Scan完成,继续获取下一个未Scan的RowGroup
 		if (!TableScanParallelStateNext(context, data_p.bind_data.get(), data_p.local_state.get(),
 		                                data_p.global_state.get())) {
 			return;

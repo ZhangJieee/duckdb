@@ -27,6 +27,7 @@ optional_ptr<AttachedDatabase> DatabaseManager::GetDatabase(ClientContext &conte
 	if (StringUtil::Lower(name) == TEMP_CATALOG) {
 		return context.client_data->temporary_objects.get();
 	}
+	// 这里通过全局的database set，根据catalog name 获取对应的AB实例,因为这里database的初始化传入了system->Catalog,默认会将system写入到本次query的MetaTransaction中
 	return (AttachedDatabase *)databases->GetEntry(context, name).get();
 }
 

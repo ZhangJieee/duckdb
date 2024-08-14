@@ -1,5 +1,6 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/common/field_writer.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -65,6 +66,7 @@ FilterPropagateResult ConjunctionAndFilter::CheckStatistics(BaseStatistics &stat
 	D_ASSERT(!child_filters.empty());
 	auto result = FilterPropagateResult::FILTER_ALWAYS_TRUE;
 	for (auto &filter : child_filters) {
+		std::cout << "child filter : " << int(filter->filter_type) << std::endl;
 		auto prune_result = filter->CheckStatistics(stats);
 		if (prune_result == FilterPropagateResult::FILTER_ALWAYS_FALSE) {
 			return FilterPropagateResult::FILTER_ALWAYS_FALSE;

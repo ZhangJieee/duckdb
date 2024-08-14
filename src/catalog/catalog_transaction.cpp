@@ -2,12 +2,14 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/transaction/duck_transaction.hpp"
 #include "duckdb/main/database.hpp"
+#include <iostream>
 
 namespace duckdb {
 
 CatalogTransaction::CatalogTransaction(Catalog &catalog, ClientContext &context) {
 	auto &transaction = Transaction::Get(context, catalog);
 	this->db = &DatabaseInstance::GetDatabase(context);
+	std::cout << "CatalogTransaction::CatalogTransaction is Duck transaction : " << transaction.IsDuckTransaction() << std::endl;
 	if (!transaction.IsDuckTransaction()) {
 		this->transaction_id = transaction_t(-1);
 		this->start_time = transaction_t(-1);

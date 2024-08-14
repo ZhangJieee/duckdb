@@ -48,6 +48,7 @@ TupleDataChunk &TupleDataChunk::operator=(TupleDataChunk &&other) noexcept {
 
 void TupleDataChunk::AddPart(TupleDataChunkPart &&part, const TupleDataLayout &layout) {
 	count += part.count;
+	// 这里记录part所在的block id等信息，可以理解为一个Vector大小的chunk数据实际分散在多个block中
 	row_block_ids.insert(part.row_block_index);
 	if (!layout.AllConstant() && part.total_heap_size > 0) {
 		heap_block_ids.insert(part.heap_block_index);

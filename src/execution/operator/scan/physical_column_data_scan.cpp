@@ -3,6 +3,7 @@
 #include "duckdb/execution/operator/join/physical_delim_join.hpp"
 #include "duckdb/parallel/meta_pipeline.hpp"
 #include "duckdb/parallel/pipeline.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -30,6 +31,7 @@ unique_ptr<GlobalSourceState> PhysicalColumnDataScan::GetGlobalSourceState(Clien
 void PhysicalColumnDataScan::GetData(ExecutionContext &context, DataChunk &chunk, GlobalSourceState &gstate,
                                      LocalSourceState &lstate) const {
 	auto &state = gstate.Cast<PhysicalColumnDataScanState>();
+	std::cout << "PhysicalColumnDataScan::GetData collection->count : " << collection->Count() << std::endl;
 	if (collection->Count() == 0) {
 		return;
 	}

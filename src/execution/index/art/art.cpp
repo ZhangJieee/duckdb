@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iostream>
 
 namespace duckdb {
 
@@ -45,6 +46,7 @@ ART::ART(const vector<column_t> &column_ids, TableIOManager &table_io_manager,
 	}
 
 	// initialize all allocators
+	// ART 中的内存管理通过BufferAllocator来提供,优先剔除已有block来复用，否则执行malloc
 	allocators.emplace_back(make_uniq<FixedSizeAllocator>(sizeof(PrefixSegment), buffer_manager.GetBufferAllocator()));
 	allocators.emplace_back(make_uniq<FixedSizeAllocator>(sizeof(LeafSegment), buffer_manager.GetBufferAllocator()));
 	allocators.emplace_back(make_uniq<FixedSizeAllocator>(sizeof(Leaf), buffer_manager.GetBufferAllocator()));
@@ -53,6 +55,7 @@ ART::ART(const vector<column_t> &column_ids, TableIOManager &table_io_manager,
 	allocators.emplace_back(make_uniq<FixedSizeAllocator>(sizeof(Node48), buffer_manager.GetBufferAllocator()));
 	allocators.emplace_back(make_uniq<FixedSizeAllocator>(sizeof(Node256), buffer_manager.GetBufferAllocator()));
 
+	// 记录root node 所在的磁盘位置，并Load本节点
 	// set the root node of the tree
 	tree = make_uniq<Node>();
 	if (block_id != DConstants::INVALID_INDEX) {
@@ -356,11 +359,13 @@ PreservedError ART::Insert(IndexLock &lock, DataChunk &input, Vector &row_ids) {
 	D_ASSERT(logical_types[0] == input.data[0].GetType());
 
 	// generate the keys for the given input
+	// data chunk -> ARTKey
 	ArenaAllocator arena_allocator(BufferAllocator::Get(db));
 	vector<ARTKey> keys(input.size());
 	GenerateKeys(arena_allocator, input, keys);
 
 	// get the corresponding row IDs
+	std::cout << " row_ids.Flatten " << std::endl;
 	row_ids.Flatten(input.size());
 	auto row_identifiers = FlatVector::GetData<row_t>(row_ids);
 
@@ -402,7 +407,9 @@ PreservedError ART::Append(IndexLock &lock, DataChunk &appended_data, Vector &ro
 	expression_result.Initialize(Allocator::DefaultAllocator(), logical_types);
 
 	// first resolve the expressions for the index
+	// 将解析出来的数据写入expression_result
 	ExecuteExpressions(appended_data, expression_result);
+	std::cout << "ART::Append : " << expression_result.ToString() << std::endl;
 
 	// now insert into the index
 	return Insert(lock, expression_result, row_identifiers);
@@ -1032,6 +1039,7 @@ void ART::InitializeMerge(ARTFlags &flags) {
 	}
 }
 
+// CREATE INDEX 会用到
 bool ART::MergeIndexes(IndexLock &state, Index &other_index) {
 
 	auto &other_art = other_index.Cast<ART>();

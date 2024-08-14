@@ -12,6 +12,7 @@
 #include "duckdb/storage/table/column_segment.hpp"
 #include "duckdb/storage/table_io_manager.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -74,6 +75,7 @@ void OptimisticDataWriter::FlushToDisk(RowGroup *row_group) {
 }
 
 void OptimisticDataWriter::FlushToDisk(RowGroupCollection &row_groups, bool force) {
+	std::cout << "OptimisticDataWriter::FlushToDisk partial_manager : " << !!partial_manager << std::endl;
 	if (!partial_manager) {
 		if (!force) {
 			// no partial manager - nothing to flush
@@ -119,6 +121,7 @@ LocalTableStorage::LocalTableStorage(DataTable &table)
 	                                             types, MAX_ROW_ID, 0);
 	row_groups->InitializeEmpty();
 
+	// 这里根据DataTable中的索引表构建local table storage 的本地ART
 	table.info->indexes.Scan([&](Index &index) {
 		D_ASSERT(index.type == IndexType::ART);
 		auto &art = index.Cast<ART>();
@@ -306,6 +309,7 @@ optional_ptr<LocalTableStorage> LocalTableManager::GetStorage(DataTable &table) 
 LocalTableStorage &LocalTableManager::GetOrCreateStorage(DataTable &table) {
 	lock_guard<mutex> l(table_storage_lock);
 	auto entry = table_storage.find(table);
+	std::cout << "LocalTableManager::GetOrCreateStorage exist : " << (entry != table_storage.end()) << std::endl;
 	if (entry == table_storage.end()) {
 		auto new_storage = make_shared<LocalTableStorage>(table);
 		auto storage = new_storage.get();
@@ -392,6 +396,7 @@ void LocalStorage::Scan(CollectionScanState &state, const vector<column_t> &colu
 
 void LocalStorage::InitializeParallelScan(DataTable &table, ParallelCollectionScanState &state) {
 	auto storage = table_manager.GetStorage(table);
+	std::cout << "LocalStorage::InitializeParallelScan " << !!storage << std::endl;
 	if (!storage) {
 		state.max_row = 0;
 		state.vector_index = 0;
@@ -419,6 +424,9 @@ void LocalStorage::Append(LocalAppendState &state, DataChunk &chunk) {
 	// append to unique indices (if any)
 	auto storage = state.storage;
 	idx_t base_id = MAX_ROW_ID + storage->row_groups->GetTotalRows() + state.append_state.total_append_count;
+	std::cout << "LocalStorage::Append storage->row_groups->GetTotalRows() : " << storage->row_groups->GetTotalRows() << "\tstate.append_state.total_append_count : " << state.append_state.total_append_count << std::endl;
+	std::cout << "table indexes empty : " << storage->indexes.Empty() << std::endl;
+	// FIXME注意,这里考虑将数据同步追加到local table storage index中
 	auto error = DataTable::AppendToIndexes(storage->indexes, chunk, base_id);
 	if (error) {
 		error.Throw();
@@ -520,8 +528,10 @@ void LocalStorage::Flush(DataTable &table, LocalTableStorage &storage) {
 		// append to the indexes and append to the base table
 		storage.AppendToIndexes(transaction, append_state, append_count, true);
 	}
+	// 写undo buffer
 	transaction.PushAppend(table, append_state.row_start, append_count);
 
+	// 尝试对表索引进行内存碎片处理
 	// possibly vacuum any excess index data
 	table.info->indexes.Scan([&](Index &index) {
 		index.Vacuum();
@@ -530,6 +540,7 @@ void LocalStorage::Flush(DataTable &table, LocalTableStorage &storage) {
 }
 
 void LocalStorage::Commit(LocalStorage::CommitState &commit_state, DuckTransaction &transaction) {
+	// 有新数据或者table有改动，事务内会创建local storage，这里将local storage的信息进行commit
 	// commit local storage
 	// iterate over all entries in the table storage map and commit them
 	// after this, the local storage is no longer required and can be cleared

@@ -6,6 +6,7 @@
 #include "duckdb/function/table_macro_function.hpp"
 
 #include "duckdb/function/scalar_macro_function.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -192,6 +193,7 @@ DefaultFunctionGenerator::DefaultFunctionGenerator(Catalog &catalog, SchemaCatal
 
 unique_ptr<CatalogEntry> DefaultFunctionGenerator::CreateDefaultEntry(ClientContext &context,
                                                                       const string &entry_name) {
+	std::cout << "DefaultFunctionGenerator::CreateDefaultEntry" << std::endl;
 	auto info = GetDefaultFunction(schema.name, entry_name);
 	if (info) {
 		return make_uniq_base<CatalogEntry, ScalarMacroCatalogEntry>(catalog, schema, info->Cast<CreateMacroInfo>());

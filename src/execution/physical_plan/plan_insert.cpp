@@ -70,6 +70,7 @@ unique_ptr<PhysicalOperator> DuckCatalog::PlanInsert(ClientContext &context, Log
 	bool parallel_streaming_insert = !PhysicalPlanGenerator::PreserveInsertionOrder(context, *plan);
 	bool use_batch_index = PhysicalPlanGenerator::UseBatchIndex(context, *plan);
 	auto num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
+	std::cout << "nums threads : " << num_threads << std::endl;
 	if (op.return_chunk) {
 		// not supported for RETURNING (yet?)
 		parallel_streaming_insert = false;

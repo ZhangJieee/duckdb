@@ -5,6 +5,7 @@
 #include "duckdb/storage/table/column_data.hpp"
 #include "duckdb/storage/table/row_group_collection.hpp"
 #include "duckdb/storage/table/row_group_segment_tree.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -79,6 +80,7 @@ CollectionScanState::CollectionScanState(TableScanState &parent_p)
 bool CollectionScanState::Scan(DuckTransaction &transaction, DataChunk &result) {
 	while (row_group) {
 		row_group->Scan(transaction, *this, result);
+		std::cout << "CollectionScanState::Scan : " << result.ToString() << std::endl;
 		if (result.size() > 0) {
 			return true;
 		} else if (max_row <= row_group->start + row_group->count) {

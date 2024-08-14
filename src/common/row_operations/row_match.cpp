@@ -98,23 +98,29 @@ static void TemplatedMatchType(UnifiedVectorFormat &col, Vector &rows, Selection
 		}
 	} else {
 		for (idx_t i = 0; i < count; i++) {
+			// 获取需要compare的目标行序号
 			auto idx = sel.get_index(i);
 
 			auto row = ptrs[idx];
 			ValidityBytes row_mask(row);
 			auto isnull = !row_mask.RowIsValid(row_mask.GetValidityEntry(entry_idx), idx_in_entry);
 
+			// 获取比较的目标col value
 			auto col_idx = col.sel->get_index(idx);
 			auto value = Load<T>(row + col_offset);
 			if (!isnull && OP::template Operation<T>(data[col_idx], value)) {
+				// 这里原地更新group compare vector裁减不匹配的行,减少后续判断的数据量
 				sel.set_index(match_count++, idx);
 			} else {
+				// 不匹配的行会记录到no match vector中,后续会进行线性探测
 				if (NO_MATCH_SEL) {
 					no_match->set_index(no_match_count++, idx);
 				}
 			}
 		}
 	}
+
+	// 最后更新匹配的列个数
 	count = match_count;
 }
 
@@ -308,6 +314,7 @@ template <bool NO_MATCH_SEL>
 static void TemplatedMatch(DataChunk &columns, UnifiedVectorFormat col_data[], const TupleDataLayout &layout,
                            Vector &rows, const Predicates &predicates, SelectionVector &sel, idx_t &count,
                            SelectionVector *no_match, idx_t &no_match_count) {
+	// 逐列比较
 	for (idx_t col_no = 0; col_no < predicates.size(); ++col_no) {
 		auto &vec = columns.data[col_no];
 		auto &col = col_data[col_no];

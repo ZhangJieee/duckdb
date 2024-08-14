@@ -28,6 +28,7 @@ public:
 protected:
 	unique_ptr<Block> block;
 	set<block_id_t> written_blocks;
+	// 当前 block 的 offset
 	idx_t offset;
 
 public:

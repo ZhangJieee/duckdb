@@ -43,7 +43,7 @@ typedef enum PGNodeTag {
 	/*
 	 * TAGS FOR PLAN NODES (plannodes.h)
 	 */
-	T_PGPlan,
+	T_PGPlan, // 8
 	T_PGResult,
 	T_PGProjectSet,
 	T_PGModifyTable,
@@ -95,7 +95,7 @@ typedef enum PGNodeTag {
 	 *
 	 * These should correspond one-to-one with PGPlan node types.
 	 */
-	T_PGPlanState,
+	T_PGPlanState, // 53
 	T_PGResultState,
 	T_PGProjectSetState,
 	T_PGModifyTableState,
@@ -141,7 +141,7 @@ typedef enum PGNodeTag {
 	/*
 	 * TAGS FOR PRIMITIVE NODES (primnodes.h)
 	 */
-	T_PGAlias,
+	T_PGAlias, // 95
 	T_PGRangeVar,
 	T_PGTableFunc,
 	T_PGExpr,
@@ -207,7 +207,7 @@ typedef enum PGNodeTag {
 	 * needs to be shared with other parts of the executor, as for example
 	 * with AggrefExprState, which nodeAgg.c has to modify.
 	 */
-	T_PGExprState,
+	T_PGExprState, // 151
 	T_PGAggrefExprState,
 	T_PGWindowFuncExprState,
 	T_PGSetExprState,
@@ -218,7 +218,7 @@ typedef enum PGNodeTag {
 	/*
 	 * TAGS FOR PLANNER NODES (relation.h)
 	 */
-	T_PGPlannerInfo,
+	T_PGPlannerInfo, // 158
 	T_PGPlannerGlobal,
 	T_PGRelOptInfo,
 	T_PGIndexOptInfo,
@@ -277,7 +277,7 @@ typedef enum PGNodeTag {
 	/*
 	 * TAGS FOR MEMORY NODES (memnodes.h)
 	 */
-	T_PGMemoryContext,
+	T_PGMemoryContext, // 212
 	T_PGAllocSetContext,
 	T_PGSlabContext,
 
@@ -285,7 +285,7 @@ typedef enum PGNodeTag {
 	 * TAGS FOR VALUE NODES (value.h)
 	 */
 	T_PGValue,
-	T_PGInteger,
+	T_PGInteger, // 216
 	T_PGFloat,
 	T_PGString,
 	T_PGBitString,
@@ -306,7 +306,7 @@ typedef enum PGNodeTag {
 	/*
 	 * TAGS FOR STATEMENT NODES (mostly in parsenodes.h)
 	 */
-	T_PGRawStmt,
+	T_PGRawStmt, // 225
 	T_PGQuery,
 	T_PGPlannedStmt,
 	T_PGInsertStmt,
@@ -323,7 +323,7 @@ typedef enum PGNodeTag {
 	T_PGClosePortalStmt,
 	T_PGClusterStmt,
 	T_PGCopyStmt,
-	T_PGCreateStmt,
+	T_PGCreateStmt, // 242
 	T_PGDefineStmt,
 	T_PGDropStmt,
 	T_PGTruncateStmt,
@@ -338,7 +338,7 @@ typedef enum PGNodeTag {
 	T_PGNotifyStmt,
 	T_PGListenStmt,
 	T_PGUnlistenStmt,
-	T_PGTransactionStmt,
+	T_PGTransactionStmt, // 257
 	T_PGViewStmt,
 	T_PGLoadStmt,
 	T_PGCreateDomainStmt,
@@ -427,7 +427,7 @@ typedef enum PGNodeTag {
 	T_PGAttachStmt,
 	T_PGDetachStmt,
 	T_PGCreateDatabaseStmt,
-	T_PGUseStmt,
+	T_PGUseStmt, // 346
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
@@ -435,7 +435,7 @@ typedef enum PGNodeTag {
 	T_PGAExpr,
 	T_PGColumnRef,
 	T_PGParamRef,
-	T_PGAConst,
+	T_PGAConst, // 350
 	T_PGFuncCall,
 	T_PGAStar,
 	T_PGAIndices,

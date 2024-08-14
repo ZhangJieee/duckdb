@@ -160,6 +160,7 @@ private:
 	idx_t tuples_per_block;
 	//! The data of the HT
 	unique_ptr<TupleDataCollection> data_collection;
+	// 记录当前PIN状态的block
 	TupleDataPinState td_pin_state;
 	vector<data_ptr_t> payload_hds_ptrs;
 

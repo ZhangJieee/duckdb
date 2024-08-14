@@ -22,6 +22,7 @@ static void TemplatedScatter(UnifiedVectorFormat &col, Vector &rows, const Selec
                              const idx_t col_offset, const idx_t col_no) {
 	auto data = (T *)col.data;
 	auto ptrs = FlatVector::GetData<data_ptr_t>(rows);
+	std::cout << "Scatter : " << (void*)ptrs << std::endl;
 
 	if (!col.validity.AllValid()) {
 		for (idx_t i = 0; i < count; i++) {
@@ -42,6 +43,7 @@ static void TemplatedScatter(UnifiedVectorFormat &col, Vector &rows, const Selec
 			auto idx = sel.get_index(i);
 			auto col_idx = col.sel->get_index(idx);
 			auto row = ptrs[idx];
+			std::cout << (void*)(row + col_offset) << "store idx : " << idx << std::endl;
 
 			Store<T>(data[col_idx], row + col_offset);
 		}
@@ -72,6 +74,7 @@ static void ScatterStringVector(UnifiedVectorFormat &col, Vector &rows, data_ptr
 	for (idx_t i = 0; i < count; i++) {
 		auto idx = sel.get_index(i);
 		auto col_idx = col.sel->get_index(idx);
+		// 行首地址
 		auto row = ptrs[idx];
 		if (!col.validity.RowIsValid(col_idx)) {
 			ValidityBytes col_mask(row);
@@ -80,9 +83,13 @@ static void ScatterStringVector(UnifiedVectorFormat &col, Vector &rows, data_ptr
 		} else if (string_data[col_idx].IsInlined()) {
 			Store<string_t>(string_data[col_idx], row + col_offset);
 		} else {
+			// target column data
 			const auto &str = string_data[col_idx];
+			// 这里将string拷贝到data_location
 			string_t inserted((const char *)str_locations[i], str.GetSize());
+			// 这里将Vector中的data拷贝到blob的内存中
 			memcpy(inserted.GetDataWriteable(), str.GetData(), str.GetSize());
+			// 移动至下一个有效首地址
 			str_locations[i] += str.GetSize();
 			inserted.Finalize();
 			Store<string_t>(inserted, row + col_offset);
@@ -115,6 +122,7 @@ void RowOperations::Scatter(DataChunk &columns, UnifiedVectorFormat col_data[], 
 		return;
 	}
 
+	// 这里记录bit mask标记每行的有效col
 	// Set the validity mask for each row before inserting data
 	auto ptrs = FlatVector::GetData<data_ptr_t>(rows);
 	for (idx_t i = 0; i < count; ++i) {
@@ -131,6 +139,7 @@ void RowOperations::Scatter(DataChunk &columns, UnifiedVectorFormat col_data[], 
 	vector<BufferHandle> handles;
 	data_ptr_t data_locations[STANDARD_VECTOR_SIZE];
 	if (!layout.AllConstant()) {
+		// 如果存在变长列,这里entry_sizes数组记录每行所有变长列的实际总大小
 		idx_t entry_sizes[STANDARD_VECTOR_SIZE];
 		std::fill_n(entry_sizes, count, sizeof(uint32_t));
 		for (idx_t col_no = 0; col_no < types.size(); col_no++) {
@@ -153,6 +162,7 @@ void RowOperations::Scatter(DataChunk &columns, UnifiedVectorFormat col_data[], 
 			}
 		}
 
+		// 为这些列分配空间
 		// Build out the buffer space
 		handles = string_heap.Build(count, data_locations, entry_sizes);
 
@@ -169,6 +179,7 @@ void RowOperations::Scatter(DataChunk &columns, UnifiedVectorFormat col_data[], 
 		}
 	}
 
+	// 这里循环所有的列,填充到rows中,转为行存
 	for (idx_t col_no = 0; col_no < types.size(); col_no++) {
 		auto &vec = columns.data[col_no];
 		auto &col = col_data[col_no];

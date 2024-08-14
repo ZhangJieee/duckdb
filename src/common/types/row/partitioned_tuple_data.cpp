@@ -240,9 +240,11 @@ void PartitionedTupleData::Partition(TupleDataCollection &source, TupleDataPinPr
 	PartitionedTupleDataAppendState append_state;
 	InitializeAppendState(append_state, properties);
 
+	// 这里在进行迭代tuple并插入到分区HT时，这里修改了pin state = destroy after done,即只保存最新chunk中的block handles,之前的chunk的block handles会释放掉
 	TupleDataChunkIterator iterator(source, TupleDataPinProperties::DESTROY_AFTER_DONE, true);
 	auto &chunk_state = iterator.GetChunkState();
 	do {
+		// 这里append到本区HT时，pin state = keep pinned
 		Append(append_state, chunk_state, iterator.GetCurrentChunkCount());
 	} while (iterator.Next());
 

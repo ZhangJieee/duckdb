@@ -4,6 +4,7 @@
 #include "duckdb/catalog/catalog_entry/type_catalog_entry.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/parser/parsed_data/create_type_info.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -99,6 +100,7 @@ DefaultTypeGenerator::DefaultTypeGenerator(Catalog &catalog, SchemaCatalogEntry 
 }
 
 unique_ptr<CatalogEntry> DefaultTypeGenerator::CreateDefaultEntry(ClientContext &context, const string &entry_name) {
+	std::cout << "DefaultTypeGenerator::CreateDefaultEntry" << std::endl;
 	if (schema.name != DEFAULT_SCHEMA) {
 		return nullptr;
 	}

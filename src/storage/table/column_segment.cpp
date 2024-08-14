@@ -11,6 +11,7 @@
 #include "duckdb/storage/table/scan_state.hpp"
 
 #include <cstring>
+#include <iostream>
 
 namespace duckdb {
 
@@ -19,6 +20,8 @@ unique_ptr<ColumnSegment> ColumnSegment::CreatePersistentSegment(DatabaseInstanc
                                                                  const LogicalType &type, idx_t start, idx_t count,
                                                                  CompressionType compression_type,
                                                                  BaseStatistics statistics) {
+	std::cout << "ColumnSegment CreatePersistentSegment" << std::endl;
+	std::cout << "block id : " << block_id << std::endl;
 	auto &config = DBConfig::GetConfig(db);
 	optional_ptr<CompressionFunction> function;
 	shared_ptr<BlockHandle> block;
@@ -27,6 +30,7 @@ unique_ptr<ColumnSegment> ColumnSegment::CreatePersistentSegment(DatabaseInstanc
 		function = config.GetCompressionFunction(CompressionType::COMPRESSION_CONSTANT, type.InternalType());
 	} else {
 		function = config.GetCompressionFunction(compression_type, type.InternalType());
+		// 将准备读出来的block注册到manager中
 		block = block_manager.RegisterBlock(block_id);
 	}
 	auto segment_size = Storage::BLOCK_SIZE;
@@ -36,14 +40,18 @@ unique_ptr<ColumnSegment> ColumnSegment::CreatePersistentSegment(DatabaseInstanc
 
 unique_ptr<ColumnSegment> ColumnSegment::CreateTransientSegment(DatabaseInstance &db, const LogicalType &type,
                                                                 idx_t start, idx_t segment_size) {
+	std::cout << "ColumnSegment CreateTransientSegment" << std::endl;
 	auto &config = DBConfig::GetConfig(db);
+	std::cout << "ColumnSegment CreateTransientSegment type.InternalType : " << int(type.InternalType()) << std::endl;
 	auto function = config.GetCompressionFunction(CompressionType::COMPRESSION_UNCOMPRESSED, type.InternalType());
 	auto &buffer_manager = BufferManager::GetBufferManager(db);
 	shared_ptr<BlockHandle> block;
 	// transient: allocate a buffer for the uncompressed segment
+	std::cout << "segment_size < Storage::BLOCK_SIZE : " << (segment_size < Storage::BLOCK_SIZE) << std::endl;
 	if (segment_size < Storage::BLOCK_SIZE) {
 		block = buffer_manager.RegisterSmallMemory(segment_size);
 	} else {
+		// RegisterMemory
 		buffer_manager.Allocate(segment_size, false, &block);
 	}
 	return make_uniq<ColumnSegment>(db, std::move(block), type, ColumnSegmentType::TRANSIENT, start, 0, *function,
@@ -51,6 +59,7 @@ unique_ptr<ColumnSegment> ColumnSegment::CreateTransientSegment(DatabaseInstance
 }
 
 unique_ptr<ColumnSegment> ColumnSegment::CreateSegment(ColumnSegment &other, idx_t start) {
+	std::cout << "ColumnSegment CreateSegment" << std::endl;
 	return make_uniq<ColumnSegment>(other, start);
 }
 

@@ -5,6 +5,7 @@
 #include "duckdb/function/cast_rules.hpp"
 #include "duckdb/function/cast/cast_function_set.hpp"
 #include "duckdb/main/config.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -40,6 +41,7 @@ unique_ptr<Expression> AddCastToTypeInternal(unique_ptr<Expression> expr, const 
                                              CastFunctionSet &cast_functions, GetCastFunctionInput &get_input,
                                              bool try_cast) {
 	D_ASSERT(expr);
+	std::cout << "AddCastToTypeInternal expr->expression_class : " << int(expr->expression_class) << std::endl;
 	if (expr->expression_class == ExpressionClass::BOUND_PARAMETER) {
 		auto &parameter = expr->Cast<BoundParameterExpression>();
 		if (!target_type.IsValid()) {
@@ -77,6 +79,8 @@ unique_ptr<Expression> AddCastToTypeInternal(unique_ptr<Expression> expr, const 
 	if (!target_type.IsValid()) {
 		return expr;
 	}
+	std::cout << "AddCastToTypeInternal return type : " << int(expr->return_type.id()) << "\t col type : " << int(target_type.id()) << std::endl;
+	std::cout << "AddCastToTypeInternal expr->return_type == target_type : " << !!(expr->return_type == target_type) << std::endl;
 
 	auto cast_function = cast_functions.GetCastFunction(expr->return_type, target_type, get_input);
 	return AddCastExpressionInternal(std::move(expr), target_type, std::move(cast_function), try_cast);

@@ -106,6 +106,7 @@ void PerfectAggregateHashTable::AddChunk(DataChunk &groups, DataChunk &payload) 
 	D_ASSERT(groups.ColumnCount() == group_minima.size());
 
 	// then compute the actual group location by iterating over each of the groups
+	// 计算group key列对应的entry的位置
 	idx_t current_shift = total_required_bits;
 	for (idx_t i = 0; i < groups.ColumnCount(); i++) {
 		current_shift -= required_bits[i];
@@ -113,6 +114,7 @@ void PerfectAggregateHashTable::AddChunk(DataChunk &groups, DataChunk &payload) 
 	}
 	// now we have the HT entry number for every tuple
 	// compute the actual pointer to the data by adding it to the base HT pointer and multiplying by the tuple size
+	// 通过data + entry的位置 * tuple的偏移量,计算出对应的内存地址,并进行init
 	for (idx_t i = 0; i < groups.size(); i++) {
 		const auto group = address_data[i];
 		D_ASSERT(group < total_groups);
@@ -127,6 +129,7 @@ void PerfectAggregateHashTable::AddChunk(DataChunk &groups, DataChunk &payload) 
 	for (idx_t aggr_idx = 0; aggr_idx < aggregates.size(); aggr_idx++) {
 		auto &aggregate = aggregates[aggr_idx];
 		auto input_count = (idx_t)aggregate.child_count;
+		// 进行聚合的update操作
 		if (aggregate.filter) {
 			RowOperations::UpdateFilteredStates(row_state, filter_set.GetFilterData(aggr_idx), aggregate, addresses,
 			                                    payload, payload_idx);
@@ -143,7 +146,9 @@ void PerfectAggregateHashTable::Combine(PerfectAggregateHashTable &other) {
 	D_ASSERT(total_groups == other.total_groups);
 	D_ASSERT(tuple_size == other.tuple_size);
 
+	// local state 的地址
 	Vector source_addresses(LogicalType::POINTER);
+	// global state 的地址
 	Vector target_addresses(LogicalType::POINTER);
 	auto source_addresses_ptr = FlatVector::GetData<data_ptr_t>(source_addresses);
 	auto target_addresses_ptr = FlatVector::GetData<data_ptr_t>(target_addresses);
@@ -169,6 +174,7 @@ void PerfectAggregateHashTable::Combine(PerfectAggregateHashTable &other) {
 		source_ptr += tuple_size;
 		target_ptr += tuple_size;
 	}
+	// merge
 	RowOperations::CombineStates(row_state, layout, source_addresses, target_addresses, combine_count);
 }
 

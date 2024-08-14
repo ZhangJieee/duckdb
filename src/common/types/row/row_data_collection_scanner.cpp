@@ -204,14 +204,17 @@ void RowDataCollectionScanner::Scan(DataChunk &chunk) {
 	const idx_t &row_width = layout.GetRowWidth();
 	// Set up a batch of pointers to scan data from
 	idx_t scanned = 0;
+	// 二维数组,记录当前block中每行的首地址
 	auto data_pointers = FlatVector::GetData<data_ptr_t>(addresses);
 
 	// We must pin ALL blocks we are going to gather from
 	vector<BufferHandle> pinned_blocks;
 	while (scanned < count) {
+		// load target block data
 		read_state.PinData();
 		auto &data_block = rows.blocks[read_state.block_idx];
 		idx_t next = MinValue(data_block->count - read_state.entry_idx, count - scanned);
+		// 获取当前Scan到的行首地址
 		const data_ptr_t data_ptr = read_state.data_handle.Ptr() + read_state.entry_idx * row_width;
 		// Set up the next pointers
 		data_ptr_t row_ptr = data_ptr;
@@ -240,6 +243,7 @@ void RowDataCollectionScanner::Scan(DataChunk &chunk) {
 		scanned += next;
 	}
 	D_ASSERT(scanned == count);
+	// 行转列,最终数据填充到chunk中
 	// Deserialize the payload data
 	for (idx_t col_no = 0; col_no < layout.ColumnCount(); col_no++) {
 		RowOperations::Gather(addresses, *FlatVector::IncrementalSelectionVector(), chunk.data[col_no],

@@ -115,6 +115,7 @@ public:
 
 	//! Lock for modifying pinned_handles
 	mutex pinned_handles_lock;
+	// 这里是保存keep pin状态的block handle,场景:比如在hash join时，local HT merge到global HT时，初始化iter的pin state = keep pin,这时获取到的handle都会放到这里
 	//! Where handles to row blocks will be stored with TupleDataPinProperties::KEEP_EVERYTHING_PINNED
 	vector<BufferHandle> pinned_row_handles;
 	//! Where handles to heap blocks will be stored with TupleDataPinProperties::KEEP_EVERYTHING_PINNED

@@ -1,5 +1,6 @@
 #include "duckdb/parser/tableref/basetableref.hpp"
 #include "duckdb/parser/transformer.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -25,6 +26,7 @@ unique_ptr<TableRef> Transformer::TransformRangeVar(duckdb_libpgquery::PGRangeVa
 
 QualifiedName Transformer::TransformQualifiedName(duckdb_libpgquery::PGRangeVar *root) {
 	QualifiedName qname;
+	std::cout << "qualify -- catalog name : " << !!root->catalogname << "\t schema name : " << !!root->schemaname << std::endl;
 	if (root->catalogname) {
 		qname.catalog = root->catalogname;
 	} else {

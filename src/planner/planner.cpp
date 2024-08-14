@@ -36,6 +36,7 @@ void Planner::CreatePlan(SQLStatement &statement) {
 	try {
 		profiler.StartPhase("binder");
 		binder->parameters = &bound_parameters;
+		// 这里返回的bound_statement已经生成了逻辑执行计划
 		auto bound_statement = binder->Bind(statement);
 		profiler.EndPhase();
 
@@ -43,6 +44,7 @@ void Planner::CreatePlan(SQLStatement &statement) {
 		this->types = bound_statement.types;
 		this->plan = std::move(bound_statement.plan);
 
+		// 确认执行树的深度
 		auto max_tree_depth = ClientConfig::GetConfig(context).max_expression_depth;
 		CheckTreeDepth(*plan, max_tree_depth);
 	} catch (const ParameterNotResolvedException &ex) {
@@ -76,9 +78,11 @@ void Planner::CreatePlan(SQLStatement &statement) {
 	this->properties.parameter_count = parameter_count;
 	properties.bound_all_parameters = parameters_resolved;
 
+	// TODO
 	Planner::VerifyPlan(context, plan, &bound_parameters.parameters);
 
 	// set up a map of parameter number -> value entries
+	std::cout << "bound_parameters.parameters size : " << bound_parameters.parameters.size() << std::endl;
 	for (auto &kv : bound_parameters.parameters) {
 		auto parameter_index = kv.first;
 		auto &parameter_data = kv.second;

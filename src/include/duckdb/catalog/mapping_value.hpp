@@ -74,6 +74,7 @@ struct EntryIndex {
 
 private:
 	CatalogSet *catalog;
+	// 每个catalog entry在新建时都会分配一个唯一index
 	idx_t index;
 };
 

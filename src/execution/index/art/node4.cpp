@@ -203,6 +203,7 @@ void Node4::Deserialize(ART &art, MetaBlockReader &reader) {
 		key[i] = reader.Read<uint8_t>();
 	}
 
+	// 这里针对child node,获取实际的磁盘地址
 	// read child block pointers
 	for (idx_t i = 0; i < Node::NODE_4_CAPACITY; i++) {
 		children[i] = Node(reader);

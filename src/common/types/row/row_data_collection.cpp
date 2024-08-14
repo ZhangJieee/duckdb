@@ -59,6 +59,7 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 		lock_guard<mutex> append_lock(rdc_lock);
 		count += added_count;
 
+		// 确认block list中是否还有空闲空间
 		if (!blocks.empty()) {
 			auto &last_block = *blocks.back();
 			if (last_block.count < last_block.capacity) {
@@ -70,6 +71,7 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 				handles.push_back(std::move(handle));
 			}
 		}
+		// 多余部分需要创建新的block
 		while (remaining > 0) {
 			// now for the remaining data, allocate new buffers to store the data and append there
 			auto &new_block = CreateBlock();
@@ -89,6 +91,7 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 			}
 		}
 	}
+	// 构建row index到实际行首地址的映射,注意,这里提前分配好空间,还没有填入数据
 	// now set up the key_locations based on the append entries
 	idx_t append_idx = 0;
 	for (auto &append_entry : append_entries) {
@@ -101,8 +104,10 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 		} else {
 			for (; append_idx < next; append_idx++) {
 				auto idx = sel->get_index(append_idx);
+				std::cout << "key locations " << (void*)key_locations[idx] <<  " idx " << idx << "\t" << (void*)append_entry.baseptr << std::endl;
 				key_locations[idx] = append_entry.baseptr;
 				append_entry.baseptr += entry_size;
+				std::cout << "entry size : " << entry_size << std::endl;
 			}
 		}
 	}

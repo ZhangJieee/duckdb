@@ -3,6 +3,7 @@
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
 #include "duckdb/common/string_util.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -74,6 +75,7 @@ DefaultViewGenerator::DefaultViewGenerator(Catalog &catalog, SchemaCatalogEntry 
 }
 
 unique_ptr<CatalogEntry> DefaultViewGenerator::CreateDefaultEntry(ClientContext &context, const string &entry_name) {
+	std::cout << "DefaultViewGenerator::CreateDefaultEntry" << std::endl;
 	auto info = GetDefaultView(context, schema.name, entry_name);
 	if (info) {
 		return make_uniq_base<CatalogEntry, ViewCatalogEntry>(catalog, schema, *info);

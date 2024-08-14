@@ -2,6 +2,7 @@
 #include "duckdb/common/printer.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
 #include "duckdb/common/optional_ptr.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -10,6 +11,7 @@ BatchedDataCollection::BatchedDataCollection(vector<LogicalType> types_p) : type
 
 void BatchedDataCollection::Append(DataChunk &input, idx_t batch_index) {
 	D_ASSERT(batch_index != DConstants::INVALID_INDEX);
+	// batch_index根据thread做了分配,所以这里local sink进行数据记录的时候,当batch_index的数据全部append结束,才会换到下一个batch index
 	optional_ptr<ColumnDataCollection> collection;
 	if (last_collection.collection && last_collection.batch_index == batch_index) {
 		// we are inserting into the same collection as before: use it directly
@@ -21,12 +23,14 @@ void BatchedDataCollection::Append(DataChunk &input, idx_t batch_index) {
 		if (last_collection.collection) {
 			new_collection = make_uniq<ColumnDataCollection>(*last_collection.collection);
 		} else {
+			std::cout << "BatchedDataCollection::Append ColumnDataCollection types : " << int(types[0].id()) << "\tpyhsical type : " << int(types[0].InternalType()) << std::endl;
 			new_collection = make_uniq<ColumnDataCollection>(Allocator::DefaultAllocator(), types);
 		}
 		last_collection.collection = new_collection.get();
 		last_collection.batch_index = batch_index;
 		new_collection->InitializeAppend(last_collection.append_state);
 		collection = new_collection.get();
+		// 构建batch index -> column data collection 的映射
 		data.insert(make_pair(batch_index, std::move(new_collection)));
 	}
 	collection->Append(last_collection.append_state, input);

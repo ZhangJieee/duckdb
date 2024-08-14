@@ -1,6 +1,7 @@
 #include "duckdb/storage/buffer/buffer_pool.hpp"
 #include "duckdb/parallel/concurrentqueue.hpp"
 #include "duckdb/common/exception.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -11,6 +12,7 @@ struct EvictionQueue {
 };
 
 bool BufferEvictionNode::CanUnload(BlockHandle &handle_p) {
+	// 这里是考虑到已经存在于queue中的handle被再次pin后又unpinned,会刷新eviction_timestamp,则会将旧的handle从queue中移除
 	if (timestamp != handle_p.eviction_timestamp) {
 		// handle was used in between
 		return false;
@@ -48,6 +50,7 @@ void BufferPool::AddToEvictionQueue(shared_ptr<BlockHandle> &handle) {
 		PurgeQueue();
 	}
 	queue->q.enqueue(BufferEvictionNode(weak_ptr<BlockHandle>(handle), handle->eviction_timestamp));
+	std::cout << "BufferPool::AddToEvictionQueue queue.size : " << queue->q.size_approx() << std::endl;
 }
 
 void BufferPool::IncreaseUsedMemory(idx_t size) {
@@ -64,7 +67,9 @@ idx_t BufferPool::GetMaxMemory() {
 BufferPool::EvictionResult BufferPool::EvictBlocks(idx_t extra_memory, idx_t memory_limit,
                                                    unique_ptr<FileBuffer> *buffer) {
 	BufferEvictionNode node;
+	// 更新buffer pool memory usage
 	TempBufferPoolReservation r(*this, extra_memory);
+	std::cout << "BufferPool::EvictBlocks queue.size : " << queue->q.size_approx() << std::endl;
 	while (current_memory > memory_limit) {
 		// get a block to unpin from the queue
 		if (!queue->q.try_dequeue(node)) {

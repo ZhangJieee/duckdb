@@ -5,6 +5,7 @@
 #include "duckdb/parser/expression/collate_expression.hpp"
 #include "duckdb/catalog/catalog_entry/table_column_type.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -63,6 +64,7 @@ ColumnDefinition Transformer::TransformColumnDefinition(duckdb_libpgquery::PGCol
 		}
 		target_type = LogicalType::VARCHAR_COLLATION(TransformCollation(cdef->collClause));
 	}
+	std::cout << "column(" << colname << ") target_type : " << int(target_type.id()) << "\tphysical type : " << int(target_type.InternalType()) << std::endl;
 
 	return ColumnDefinition(colname, target_type);
 }
@@ -83,9 +85,14 @@ unique_ptr<CreateStatement> Transformer::TransformCreateTable(duckdb_libpgquery:
 	info->catalog = qname.catalog;
 	info->schema = qname.schema;
 	info->table = qname.name;
+	std::cout << "Transformer::TransformCreateTable " << std::endl;
+	std::cout << "catalog : " << info->catalog << "\t" << "schema : " << info->schema << "\t" << "table : " << info->table << std::endl;
+
 	info->on_conflict = TransformOnConflict(stmt->onconflict);
+	std::cout << "stmt->onconflict : " << int(stmt->onconflict) << "\t" << "info->on_conflict : " << int(info->on_conflict) << std::endl;
 	info->temporary =
 	    stmt->relation->relpersistence == duckdb_libpgquery::PGPostgresRelPersistence::PG_RELPERSISTENCE_TEMP;
+	std::cout << "info->temporary : " << info->temporary << std::endl;
 
 	if (info->temporary && stmt->oncommit != duckdb_libpgquery::PGOnCommitAction::PG_ONCOMMIT_PRESERVE_ROWS &&
 	    stmt->oncommit != duckdb_libpgquery::PGOnCommitAction::PG_ONCOMMIT_NOOP) {
@@ -96,12 +103,15 @@ unique_ptr<CreateStatement> Transformer::TransformCreateTable(duckdb_libpgquery:
 	}
 
 	idx_t column_count = 0;
+	// 遍历表中的所有列定义
 	for (auto c = stmt->tableElts->head; c != nullptr; c = lnext(c)) {
 		auto node = reinterpret_cast<duckdb_libpgquery::PGNode *>(c->data.ptr_value);
 		switch (node->type) {
 		case duckdb_libpgquery::T_PGColumnDef: {
 			auto cdef = (duckdb_libpgquery::PGColumnDef *)c->data.ptr_value;
 			auto centry = TransformColumnDefinition(cdef);
+			std::cout << "col name : " << cdef->colname << std::endl;
+			std::cout << "cdef->constraints : " << !!cdef->constraints << std::endl;
 			if (cdef->constraints) {
 				for (auto constr = cdef->constraints->head; constr != nullptr; constr = constr->next) {
 					auto constraint = TransformConstraint(constr, centry, info->columns.LogicalColumnCount());

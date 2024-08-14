@@ -15,6 +15,7 @@
 
 namespace duckdb {
 
+// 保存一行数据
 struct RowDataBlock {
 public:
 	RowDataBlock(BufferManager &buffer_manager, idx_t capacity, idx_t entry_size)

@@ -4,6 +4,7 @@
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "duckdb/planner/operator/logical_set_operation.hpp"
 #include "duckdb/planner/query_node/bound_set_operation_node.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -14,6 +15,7 @@ unique_ptr<LogicalOperator> Binder::CastLogicalOperatorToTypes(vector<LogicalTyp
 	D_ASSERT(op);
 	// first check if we even need to cast
 	D_ASSERT(source_types.size() == target_types.size());
+    std::cout << "Binder::CastLogicalOperatorToTypes source_types == target_types : " << (source_types == target_types) << std::endl;
 	if (source_types == target_types) {
 		// source and target types are equal: don't need to cast
 		return op;

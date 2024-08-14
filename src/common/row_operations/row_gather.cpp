@@ -19,6 +19,7 @@ static void TemplatedGatherLoop(Vector &rows, const SelectionVector &row_sel, Ve
                                 const SelectionVector &col_sel, idx_t count, const RowLayout &layout, idx_t col_no,
                                 idx_t build_size) {
 	// Precompute mask indexes
+	// 目标列的偏移量
 	const auto &offsets = layout.GetOffsets();
 	const auto col_offset = offsets[col_no];
 	idx_t entry_idx;
@@ -26,13 +27,17 @@ static void TemplatedGatherLoop(Vector &rows, const SelectionVector &row_sel, Ve
 	ValidityBytes::GetEntryIndex(col_no, entry_idx, idx_in_entry);
 
 	auto ptrs = FlatVector::GetData<data_ptr_t>(rows);
+	// 目标列的首地址
 	auto data = FlatVector::GetData<T>(col);
 	auto &col_mask = FlatVector::Validity(col);
 
 	for (idx_t i = 0; i < count; i++) {
 		auto row_idx = row_sel.get_index(i);
+		// 当前行首地址
 		auto row = ptrs[row_idx];
 		auto col_idx = col_sel.get_index(i);
+
+		// copy
 		data[col_idx] = Load<T>(row + col_offset);
 		ValidityBytes row_mask(row);
 		if (!row_mask.RowIsValid(row_mask.GetValidityEntry(entry_idx), idx_in_entry)) {

@@ -208,21 +208,29 @@ void DatabaseInstance::Initialize(const char *database_path, DBConfig *user_conf
 
 	// check if we are opening a standard DuckDB database or an extension database
 	auto database_type = ExtractDatabaseType(config.options.database_path);
+	std::cout << "DatabaseInstance::Initialize database_path : " << config.options.database_path << "\t database_type.empty : " << database_type.empty() << std::endl;
 	if (!database_type.empty()) {
 		// we are opening an extension database, run storage_init
 		ExtensionHelper::StorageInit(database_type, config);
 	}
 	AttachInfo info;
+	// default, info.name = "memory"
 	info.name = AttachedDatabase::ExtractDatabaseName(config.options.database_path);
+	std::cout << "attached database name : " << info.name << std::endl;
 	info.path = config.options.database_path;
 
 	auto attached_database = CreateAttachedDatabase(info, database_type, config.options.access_mode);
 	auto initial_database = attached_database.get();
+	// 这里是将创建的名为memory的attached_database(CatalogEntry)写入到db_manager的database中
 	{
 		Connection con(*this);
+		std::cout << "-------------- Begin Transaction -----------" << std::endl;
 		con.BeginTransaction();
+		std::cout << "-------------- Add Database -----------" << std::endl;
 		db_manager->AddDatabase(*con.context, std::move(attached_database));
+		std::cout << "-------------- Commit Transaction -----------" << std::endl;
 		con.Commit();
+		std::cout << "-------------- Commit End -----------" << std::endl;
 	}
 
 	// initialize the system catalog
@@ -235,6 +243,7 @@ void DatabaseInstance::Initialize(const char *database_path, DBConfig *user_conf
 		ExtensionHelper::LoadExternalExtension(*this, nullptr, database_type);
 	}
 
+	std::cout << "config.options.unrecognized_options.empty() : " << config.options.unrecognized_options.empty() << std::endl;
 	if (!config.options.unrecognized_options.empty()) {
 		// check if all unrecognized options can be handled by the loaded extension(s)
 		for (auto &unrecognized_option : config.options.unrecognized_options) {
@@ -257,6 +266,7 @@ void DatabaseInstance::Initialize(const char *database_path, DBConfig *user_conf
 	}
 
 	// only increase thread count after storage init because we get races on catalog otherwise
+	std::cout << "config.options.maximum_threads : " << config.options.maximum_threads << std::endl;
 	scheduler->SetThreads(config.options.maximum_threads);
 }
 
@@ -344,6 +354,7 @@ void DatabaseInstance::Configure(DBConfig &new_config) {
 	if (!config.allocator) {
 		config.allocator = make_uniq<Allocator>();
 	}
+	// TODO replacement_scans 应用?
 	config.replacement_scans = std::move(new_config.replacement_scans);
 	config.parser_extensions = std::move(new_config.parser_extensions);
 	config.error_manager = std::move(new_config.error_manager);

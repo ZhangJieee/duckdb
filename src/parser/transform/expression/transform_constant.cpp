@@ -3,10 +3,12 @@
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/common/limits.hpp"
 #include "duckdb/common/types/decimal.hpp"
+#include <iostream>
 
 namespace duckdb {
 
 unique_ptr<ConstantExpression> Transformer::TransformValue(duckdb_libpgquery::PGValue val) {
+	std::cout << "Transformer::TransformValue val.type : " << int(val.type) << std::endl;
 	switch (val.type) {
 	case duckdb_libpgquery::T_PGInteger:
 		D_ASSERT(val.val.ival <= NumericLimits<int32_t>::Maximum());

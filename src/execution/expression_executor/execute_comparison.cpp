@@ -282,8 +282,11 @@ idx_t ExpressionExecutor::Select(const BoundComparisonExpression &expr, Expressi
 	auto &left = state->intermediate_chunk.data[0];
 	auto &right = state->intermediate_chunk.data[1];
 
+	// expr -> data chunk
 	Execute(*expr.left, state->child_states[0].get(), sel, count, left);
 	Execute(*expr.right, state->child_states[1].get(), sel, count, right);
+	std::cout << "ExpressionExecutor::Select left : " << left.ToString() << std::endl;
+	std::cout << " right : " << right.ToString() << std::endl;
 
 	switch (expr.type) {
 	case ExpressionType::COMPARE_EQUAL:

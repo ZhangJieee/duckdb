@@ -34,6 +34,7 @@
 #include "duckdb/function/built_in_functions.hpp"
 #include "duckdb/catalog/similar_catalog_entry.hpp"
 #include <algorithm>
+#include <iostream>
 
 namespace duckdb {
 
@@ -71,16 +72,22 @@ optional_ptr<Catalog> Catalog::GetCatalogEntry(ClientContext &context, const str
 	if (catalog_name == SYSTEM_CATALOG) {
 		return &GetSystemCatalog(context);
 	}
+	std::cout << "get default database : \n";
+	std::cout << "catalog_name : " << catalog_name << std::endl;
+	std::cout << "default database : " << DatabaseManager::GetDefaultDatabase(context) << std::endl;
 	auto entry = db_manager.GetDatabase(
 	    context, IsInvalidCatalog(catalog_name) ? DatabaseManager::GetDefaultDatabase(context) : catalog_name);
 	if (!entry) {
 		return nullptr;
 	}
+	std::cout << "attached db type : " << entry->GetName() << std::endl;
+	std::cout << "catalog name : " << entry->GetCatalog().GetName() << std::endl;
 	return &entry->GetCatalog();
 }
 
 Catalog &Catalog::GetCatalog(ClientContext &context, const string &catalog_name) {
 	auto catalog = Catalog::GetCatalogEntry(context, catalog_name);
+	std::cout << "GetCatalog catalog type : " << catalog->GetCatalogType() << std::endl;
 	if (!catalog) {
 		throw BinderException("Catalog \"%s\" does not exist!", catalog_name);
 	}
@@ -385,6 +392,7 @@ string FindExtensionForSetting(const string &name) {
 
 vector<CatalogSearchEntry> GetCatalogEntries(ClientContext &context, const string &catalog, const string &schema) {
 	vector<CatalogSearchEntry> entries;
+	std::cout << "GetCatalogEntries  catalog : " << catalog << "\tschema : " << schema << std::endl;
 	auto &search_path = *context.client_data->catalog_search_path;
 	if (IsInvalidCatalog(catalog) && IsInvalidSchema(schema)) {
 		// no catalog or schema provided - scan the entire search path
@@ -519,6 +527,7 @@ CatalogEntryLookup Catalog::LookupEntryInternal(CatalogTransaction transaction, 
 	if (!schema_entry) {
 		return {nullptr, nullptr};
 	}
+	std::cout << "Catalog::LookupEntryInterna schema.GetEntry : " << name << std::endl;
 	auto entry = schema_entry->GetEntry(transaction, type, name);
 	if (!entry) {
 		return {schema_entry, nullptr};
@@ -568,15 +577,19 @@ CatalogEntryLookup Catalog::LookupEntry(ClientContext &context, vector<CatalogLo
                                         const string &name, OnEntryNotFound if_not_found,
                                         QueryErrorContext error_context) {
 	reference_set_t<SchemaCatalogEntry> schemas;
+	int idx = 0;
 	for (auto &lookup : lookups) {
 		auto transaction = lookup.catalog.GetCatalogTransaction(context);
+		std::cout << "lookup catalog : " << lookup.catalog.GetName() << std::endl;
 		auto result = lookup.catalog.LookupEntryInternal(transaction, type, lookup.schema, name);
 		if (result.Found()) {
+			std::cout << "find index : " << idx << std::endl;
 			return result;
 		}
 		if (result.schema) {
 			schemas.insert(*result.schema);
 		}
+		idx++;
 	}
 	if (if_not_found == OnEntryNotFound::RETURN_NULL) {
 		return {nullptr, nullptr};
@@ -611,10 +624,20 @@ CatalogEntry &Catalog::GetEntry(ClientContext &context, CatalogType type, const 
 optional_ptr<CatalogEntry> Catalog::GetEntry(ClientContext &context, CatalogType type, const string &catalog,
                                              const string &schema, const string &name, OnEntryNotFound if_not_found,
                                              QueryErrorContext error_context) {
+	// 根据catalog schema 获取对应的catalog entry,如果没有指定，则使用默认database
 	auto entries = GetCatalogEntries(context, catalog, schema);
+	std::cout << " Print catalog search entries -- size : " << entries.size() << std::endl;
+	/*
+	 * temp.main
+	 * main
+	 * system.main
+	 * system.pg_catalog
+	 *
+	 * */
 	vector<CatalogLookup> lookups;
 	lookups.reserve(entries.size());
 	for (auto &entry : entries) {
+		std::cout << "entry : " << entry.ToString() << std::endl;
 		if (if_not_found == OnEntryNotFound::RETURN_NULL) {
 			auto catalog_entry = Catalog::GetCatalogEntry(context, entry.catalog);
 			if (!catalog_entry) {
@@ -642,6 +665,7 @@ optional_ptr<SchemaCatalogEntry> Catalog::GetSchema(ClientContext &context, cons
                                                     const string &schema_name, OnEntryNotFound if_not_found,
                                                     QueryErrorContext error_context) {
 	auto entries = GetCatalogEntries(context, catalog_name, schema_name);
+	std::cout << "Catalog::GetSchema get catalog entries size : " << entries.size() << std::endl;
 	for (idx_t i = 0; i < entries.size(); i++) {
 		auto on_not_found = i + 1 == entries.size() ? if_not_found : OnEntryNotFound::RETURN_NULL;
 		auto &catalog = Catalog::GetCatalog(context, entries[i].catalog);

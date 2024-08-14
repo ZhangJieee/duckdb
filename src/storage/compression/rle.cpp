@@ -303,6 +303,7 @@ void RLEScanPartial(ColumnSegment &segment, ColumnScanState &state, idx_t scan_c
 	auto index_pointer = (rle_count_t *)(data + scan_state.rle_count_offset);
 
 	auto result_data = FlatVector::GetData<T>(result);
+	// scan过程会将数据转换成FLAT类型
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	for (idx_t i = 0; i < scan_count; i++) {
 		// assign the current value

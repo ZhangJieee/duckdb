@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <iostream>
 
 #ifndef _WIN32
 #include <dirent.h>
@@ -451,6 +452,7 @@ idx_t FileHandle::GetFileSize() {
 }
 
 void FileHandle::Sync() {
+	std::cout << "FileHandle Sync filesystem : " << file_system.GetName() << std::endl;
 	file_system.FileSync(*this);
 }
 

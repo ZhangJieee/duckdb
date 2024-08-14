@@ -12,6 +12,7 @@
 #include "duckdb/transaction/transaction_manager.hpp"
 #include "duckdb/common/serializer/buffered_file_reader.hpp"
 #include "duckdb/main/attached_database.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -92,6 +93,7 @@ void SingleFileStorageManager::LoadDatabase() {
 	}
 
 	string wal_path = path + ".wal";
+	std::cout << "SingleFileStorageManager wal path : " << wal_path << std::endl;
 	auto &fs = FileSystem::Get(db);
 	auto &config = DBConfig::Get(db);
 	bool truncate_wal = false;
@@ -253,6 +255,7 @@ bool SingleFileStorageManager::AutomaticCheckpoint(idx_t estimated_wal_bytes) {
 
 	auto &config = DBConfig::Get(db);
 	auto initial_size = log->GetWALSize();
+	// 评估WAL的大小,超过阈值触发checkpoint
 	idx_t expected_wal_size = initial_size + estimated_wal_bytes;
 	return expected_wal_size > config.options.checkpoint_wal_size;
 }

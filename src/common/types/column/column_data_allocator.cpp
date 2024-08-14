@@ -3,6 +3,7 @@
 #include "duckdb/common/types/column/column_data_collection_segment.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
 #include "duckdb/storage/buffer/block_handle.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -19,6 +20,7 @@ ColumnDataAllocator::ColumnDataAllocator(ClientContext &context, ColumnDataAlloc
     : type(allocator_type) {
 	switch (type) {
 	case ColumnDataAllocatorType::BUFFER_MANAGER_ALLOCATOR:
+		// 这里直接复用了DB内部的buffer manager实例
 		alloc.buffer_manager = &BufferManager::GetBufferManager(context);
 		break;
 	case ColumnDataAllocatorType::IN_MEMORY_ALLOCATOR:
@@ -59,7 +61,9 @@ BufferHandle ColumnDataAllocator::Pin(uint32_t block_id) {
 
 BufferHandle ColumnDataAllocator::AllocateBlock(idx_t size) {
 	D_ASSERT(type == ColumnDataAllocatorType::BUFFER_MANAGER_ALLOCATOR);
+	// 一个 block 的默认大小为256k,可以更大
 	auto block_size = MaxValue<idx_t>(size, Storage::BLOCK_SIZE);
+	std::cout << "ColumnDataAllocator::AllocateBlock block_size : " << block_size << std::endl;
 	BlockMetaData data;
 	data.size = 0;
 	data.capacity = block_size;
@@ -98,6 +102,9 @@ void ColumnDataAllocator::AssignPointer(uint32_t &block_id, uint32_t &offset, da
 void ColumnDataAllocator::AllocateBuffer(idx_t size, uint32_t &block_id, uint32_t &offset,
                                          ChunkManagementState *chunk_state) {
 	D_ASSERT(allocated_data.empty());
+	std::cout << "ColumnDataAllocator::AllocateBuffer blocks.empty : " << blocks.empty();
+	if (!blocks.empty())
+		std::cout << "\tblocks.back.Cap < size : " << (blocks.back().Capacity() < size) << std::endl;
 	if (blocks.empty() || blocks.back().Capacity() < size) {
 		auto pinned_block = AllocateBlock(size);
 		if (chunk_state) {
@@ -229,6 +236,7 @@ void ColumnDataAllocator::InitializeChunkState(ChunkManagementState &state, Chun
 		// nothing to pin
 		return;
 	}
+	std::cout << "ColumnDataAllocator::InitializeChunkState state.handlers : " << state.handles.size() << std::endl;
 	// release any handles that are no longer required
 	bool found_handle;
 	do {

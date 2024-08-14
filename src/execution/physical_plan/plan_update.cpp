@@ -3,6 +3,7 @@
 #include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/planner/operator/logical_update.hpp"
 #include "duckdb/catalog/duck_catalog.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -20,6 +21,7 @@ unique_ptr<PhysicalOperator> DuckCatalog::PlanUpdate(ClientContext &context, Log
 unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalUpdate &op) {
 	D_ASSERT(op.children.size() == 1);
 
+	std::cout << "PhysicalPlanGenerator::CreatePlan : Logical Update" << std::endl;
 	auto plan = CreatePlan(*op.children[0]);
 
 	dependencies.AddDependency(op.table);

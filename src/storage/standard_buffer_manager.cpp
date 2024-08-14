@@ -58,6 +58,7 @@ void StandardBufferManager::SetTemporaryDirectory(const string &new_dir) {
 
 StandardBufferManager::StandardBufferManager(DatabaseInstance &db, string tmp)
     : BufferManager(), db(db), buffer_pool(db.GetBufferPool()), temp_directory(std::move(tmp)),
+      // temporary_id用来区分数据库的block和临时产生的block
       temporary_id(MAXIMUM_BLOCK), buffer_allocator(BufferAllocatorAllocate, BufferAllocatorFree,
                                                     BufferAllocatorRealloc, make_uniq<BufferAllocatorData>(*this)) {
 	temp_block_manager = make_uniq<InMemoryBlockManager>(*this);
@@ -97,6 +98,7 @@ TempBufferPoolReservation StandardBufferManager::EvictBlocksOrThrow(idx_t memory
 
 shared_ptr<BlockHandle> StandardBufferManager::RegisterSmallMemory(idx_t block_size) {
 	D_ASSERT(block_size < Storage::BLOCK_SIZE);
+	// 针对小块内存只更新memory usage
 	auto res = EvictBlocksOrThrow(block_size, nullptr, "could not allocate block of %lld bytes (%lld/%lld used) %s",
 	                              block_size, GetUsedMemory(), GetMaxMemory());
 
@@ -226,6 +228,8 @@ void StandardBufferManager::Unpin(shared_ptr<BlockHandle> &handle) {
 	if (handle->readers == 0) {
 		VerifyZeroReaders(handle);
 		buffer_pool.AddToEvictionQueue(handle);
+		std::cout << "StandardBufferManager::Unpin handler.id : " << handle->BlockId() << std::endl;
+		std::cout << "StandardBufferManager::Unpin & enqueue" << std::endl;
 	}
 }
 
@@ -756,6 +760,7 @@ data_ptr_t StandardBufferManager::BufferAllocatorAllocate(PrivateAllocatorData *
 
 void StandardBufferManager::BufferAllocatorFree(PrivateAllocatorData *private_data, data_ptr_t pointer, idx_t size) {
 	auto &data = (BufferAllocatorData &)*private_data;
+	// 更新buffer pool memory usage
 	BufferPoolReservation r(data.manager.GetBufferPool());
 	r.size = size;
 	r.Resize(0);

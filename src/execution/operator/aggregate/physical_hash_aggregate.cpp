@@ -20,6 +20,7 @@ HashAggregateGroupingData::HashAggregateGroupingData(GroupingSet &grouping_set_p
                                                      const GroupedAggregateData &grouped_aggregate_data,
                                                      unique_ptr<DistinctAggregateCollectionInfo> &info)
     : table_data(grouping_set_p, grouped_aggregate_data) {
+	// 聚合操作中指定DISTINCT
 	if (info) {
 		distinct_data = make_uniq<DistinctAggregateData>(*info, grouping_set_p, &grouped_aggregate_data.groups);
 	}
@@ -71,9 +72,11 @@ static vector<LogicalType> CreateGroupChunkTypes(vector<unique_ptr<Expression>> 
 		return {};
 	}
 
+	std::cout << "CreateGroupChunkTypes groups : " << groups.size() << std::endl;
 	for (auto &group : groups) {
 		D_ASSERT(group->type == ExpressionType::BOUND_REF);
 		auto &bound_ref = group->Cast<BoundReferenceExpression>();
+		std::cout << "group expr : " << bound_ref.ToString() << std::endl;
 		group_indices.insert(bound_ref.index);
 	}
 	idx_t highest_index = *group_indices.rbegin();
@@ -94,6 +97,7 @@ bool PhysicalHashAggregate::CanSkipRegularSink() const {
 		// When there are no aggregates, we have to add to the main ht right away
 		return false;
 	}
+	std::cout << "non_distinct_filter : " << non_distinct_filter.size() << std::endl;
 	if (!non_distinct_filter.empty()) {
 		return false;
 	}
@@ -120,7 +124,14 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
     : PhysicalOperator(PhysicalOperatorType::HASH_GROUP_BY, std::move(types), estimated_cardinality),
       grouping_sets(std::move(grouping_sets_p)) {
 	// get a list of all aggregates to be computed
+	std::cout << "PhysicalHashAggregate construct " << std::endl;
+	std::cout << "groups_p : " << groups_p.size() << std::endl;
 	const idx_t group_count = groups_p.size();
+	std::cout << "grouping_sets : " << grouping_sets.size() << std::endl;
+	for (auto& i : grouping_sets[0]) {
+		std::cout << "i : " << i << std::endl;
+	}
+
 	if (grouping_sets.empty()) {
 		GroupingSet set;
 		for (idx_t i = 0; i < group_count; i++) {
@@ -128,8 +139,10 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
 		}
 		grouping_sets.push_back(std::move(set));
 	}
+	// 这里收集Group By指定的列类型
 	input_group_types = CreateGroupChunkTypes(groups_p);
 
+	// expressions记录的是Select List中的聚合表达式
 	grouped_aggregate_data.InitializeGroupby(std::move(groups_p), std::move(expressions),
 	                                         std::move(grouping_functions_p));
 
@@ -141,6 +154,8 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
 		auto &aggregate = aggregates[i];
 		auto &aggr = aggregate->Cast<BoundAggregateExpression>();
 		aggregate_input_idx += aggr.children.size();
+
+		// 统计聚合函数是否限制唯一,并记录,后面sink会用到
 		if (aggr.aggr_type == AggregateType::DISTINCT) {
 			distinct_filter.push_back(i);
 		} else if (aggr.aggr_type == AggregateType::NON_DISTINCT) {
@@ -164,8 +179,10 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
 		}
 	}
 
+	// if no distinct, this is null
 	distinct_collection_info = DistinctAggregateCollectionInfo::Create(grouped_aggregate_data.aggregates);
 
+	// 创建radix partitioned hash table
 	for (idx_t i = 0; i < grouping_sets.size(); i++) {
 		groupings.emplace_back(grouping_sets[i], grouped_aggregate_data, distinct_collection_info);
 	}
@@ -206,6 +223,7 @@ class HashAggregateLocalState : public LocalSinkState {
 public:
 	HashAggregateLocalState(const PhysicalHashAggregate &op, ExecutionContext &context) {
 
+		// 根据聚合函数中的列类型初始化chunk
 		auto &payload_types = op.grouped_aggregate_data.payload_types;
 		if (!payload_types.empty()) {
 			aggregate_input_chunk.InitializeEmpty(payload_types);
@@ -226,8 +244,10 @@ public:
 		filter_set.Initialize(context.client, aggregate_objects, payload_types);
 	}
 
+	// 保存聚合函数中的目标列
 	DataChunk aggregate_input_chunk;
 	vector<HashAggregateGroupingLocalState> grouping_states;
+	// 仅为了DISTINCT用
 	AggregateFilterDataSet filter_set;
 };
 
@@ -344,6 +364,7 @@ SinkResultType PhysicalHashAggregate::Sink(ExecutionContext &context, GlobalSink
 		SinkDistinct(context, state, lstate, input);
 	}
 
+	std::cout << "CanSkipRegularSink() : " << CanSkipRegularSink() << std::endl;
 	if (CanSkipRegularSink()) {
 		return SinkResultType::NEED_MORE_INPUT;
 	}
@@ -353,6 +374,7 @@ SinkResultType PhysicalHashAggregate::Sink(ExecutionContext &context, GlobalSink
 	auto &aggregates = grouped_aggregate_data.aggregates;
 	idx_t aggregate_input_idx = 0;
 
+	// 这里将聚合函数指定列的数据填充到aggregate_input_chunk中
 	// Populate the aggregate child vectors
 	for (auto &aggregate : aggregates) {
 		auto &aggr = aggregate->Cast<BoundAggregateExpression>();
@@ -377,6 +399,7 @@ SinkResultType PhysicalHashAggregate::Sink(ExecutionContext &context, GlobalSink
 	aggregate_input_chunk.SetCardinality(input.size());
 	aggregate_input_chunk.Verify();
 
+	// 目前理解,sql中每个Group By关键字对应一个grouping
 	// For every grouping set there is one radix_table
 	for (idx_t i = 0; i < groupings.size(); i++) {
 		auto &grouping_gstate = gstate.grouping_states[i];
@@ -453,6 +476,7 @@ public:
 public:
 	void Schedule() override {
 		vector<unique_ptr<Task>> tasks;
+		// 根据分组个数创建task
 		for (idx_t i = 0; i < op.groupings.size(); i++) {
 			auto &grouping_gstate = gstate.grouping_states[i];
 
@@ -799,6 +823,7 @@ SinkFinalizeType PhysicalHashAggregate::FinalizeInternal(Pipeline &pipeline, Eve
 		}
 	}
 	if (any_partitioned) {
+		// 创建Merge Event
 		auto new_event = make_shared<HashAggregateMergeEvent>(*this, gstate, &pipeline);
 		event.InsertEvent(std::move(new_event));
 	}
@@ -841,6 +866,7 @@ public:
 		for (size_t sidx = 0; sidx < op.groupings.size(); ++sidx) {
 			auto &grouping = op.groupings[sidx];
 			auto &grouping_gstate = ht_state.grouping_states[sidx];
+			// 这里获取所有分区HT的元素总量
 			count += grouping.table_data.Size(*grouping_gstate.table_state);
 		}
 		return MaxValue<idx_t>(1, count / STANDARD_VECTOR_SIZE);

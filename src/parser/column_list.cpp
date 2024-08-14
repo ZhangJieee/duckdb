@@ -9,7 +9,10 @@ ColumnList::ColumnList(bool allow_duplicate_names) : allow_duplicate_names(allow
 void ColumnList::AddColumn(ColumnDefinition column) {
 	auto oid = columns.size();
 	if (!column.Generated()) {
+		// 这里列的oid，从0开始，线性递增
 		column.SetStorageOid(physical_columns.size());
+
+		// 这里构建 physical index (array index) -> logical index的映射
 		physical_columns.push_back(oid);
 	} else {
 		column.SetStorageOid(DConstants::INVALID_INDEX);
@@ -78,6 +81,7 @@ const ColumnDefinition &ColumnList::GetColumn(PhysicalIndex physical) const {
 	if (physical.index >= physical_columns.size()) {
 		throw InternalException("Physical column index %lld out of range", physical.index);
 	}
+	// physical index -> logical index
 	auto logical_index = physical_columns[physical.index];
 	D_ASSERT(logical_index < columns.size());
 	return columns[logical_index];

@@ -11,6 +11,7 @@
 
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/common/to_string.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -18,6 +19,7 @@ ColumnBindingResolver::ColumnBindingResolver() {
 }
 
 void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
+	std::cout << "op.type : " << int(op.type) << std::endl;
 	switch (op.type) {
 	case LogicalOperatorType::LOGICAL_ASOF_JOIN:
 	case LogicalOperatorType::LOGICAL_COMPARISON_JOIN:
@@ -71,12 +73,15 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 		//! We first need to update the current set of bindings and then visit operator expressions
 		bindings = op.GetColumnBindings();
 		VisitOperatorExpressions(op);
+		std::cout << "fit column bindings : " << bindings[0].table_index << " , " << bindings[0].column_index << std::endl;
+		std::cout << "expression size : " << op.expressions.size() << std::endl;
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_INSERT: {
 		//! We want to execute the normal path, but also add a dummy 'excluded' binding if there is a
 		// ON CONFLICT DO UPDATE clause
 		auto &insert_op = op.Cast<LogicalInsert>();
+		std::cout << "insert_op.action_type : " << int(insert_op.action_type) << std::endl;
 		if (insert_op.action_type != OnConflictAction::THROW) {
 			// Get the bindings from the children
 			VisitOperatorChildren(op);
@@ -100,17 +105,28 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 		break;
 	}
 	// general case
+	std::cout << "ready to visit operator children" << std::endl;
+	std::cout << "binding : " << bindings.size() << std::endl;
 	// first visit the children of this operator
 	VisitOperatorChildren(op);
-	// now visit the expressions of this operator to resolve any bound column references
+	std::cout << "2 binding : " << bindings.size() << std::endl;
+	// now visit the expressions of this operator to resolve any bound column references (将不可执行的表达式转变成指向物理数据块的可执行表达式)
 	VisitOperatorExpressions(op);
 	// finally update the current set of bindings to the current set of column bindings
+	std::cout << "first access : " << std::endl;
+	op.Print();
 	bindings = op.GetColumnBindings();
+	std::cout << "final op type : " << int(op.type) << std::endl; // LOGICAL_PROJECTION = 1
+	std::cout << "fit column bindings : " << bindings[0].table_index << " , " << bindings[0].column_index << std::endl;
 }
 
 unique_ptr<Expression> ColumnBindingResolver::VisitReplace(BoundColumnRefExpression &expr,
                                                            unique_ptr<Expression> *expr_ptr) {
 	D_ASSERT(expr.depth == 0);
+	std::cout << "visit replace : " << int(expr.GetExpressionClass()) << std::endl;
+	std::cout << "bindings : " << bindings.size() << std::endl;
+	std::cout << "VisitReplace -- fit column bindings : " << bindings[0].table_index << " , " << bindings[0].column_index << std::endl;
+	std::cout << "expr type : " << int(expr.GetExpressionClass()) << std::endl;
 	// check the current set of column bindings to see which index corresponds to the column reference
 	for (idx_t i = 0; i < bindings.size(); i++) {
 		if (expr.binding == bindings[i]) {

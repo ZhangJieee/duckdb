@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/planner/logical_operator.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -38,6 +39,7 @@ public:
 
 protected:
 	void ResolveTypes() override {
+		std::cout << "DummyScan Resolve Type  types.size : " << types.size() << std::endl;
 		if (types.size() == 0) {
 			types.emplace_back(LogicalType::INTEGER);
 		}

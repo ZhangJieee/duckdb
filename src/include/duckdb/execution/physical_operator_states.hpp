@@ -62,6 +62,7 @@ public:
 	}
 };
 
+// 每个查询的Operator全局只有一个GlobalSinkState
 class GlobalSinkState {
 public:
 	GlobalSinkState() : state(SinkFinalizeType::READY) {
@@ -83,6 +84,7 @@ public:
 	}
 };
 
+// 每个查询的PipelineExecutor都有一个LocalSinkState
 class LocalSinkState {
 public:
 	virtual ~LocalSinkState() {
@@ -107,6 +109,7 @@ public:
 	}
 };
 
+// 决定并行task的数量,实际的算子会定义自己的并行度
 class GlobalSourceState {
 public:
 	virtual ~GlobalSourceState() {

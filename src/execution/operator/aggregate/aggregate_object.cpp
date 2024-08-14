@@ -26,6 +26,7 @@ AggregateObject::AggregateObject(BoundWindowExpression &window)
 }
 
 vector<AggregateObject> AggregateObject::CreateAggregateObjects(const vector<BoundAggregateExpression *> &bindings) {
+	// 这里根据聚合表达式生成聚合对象
 	vector<AggregateObject> aggregates;
 	aggregates.reserve(aggregates.size());
 	for (auto &binding : bindings) {

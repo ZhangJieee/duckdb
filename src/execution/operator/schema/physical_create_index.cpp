@@ -98,12 +98,14 @@ SinkResultType PhysicalCreateIndex::Sink(ExecutionContext &context, GlobalSinkSt
 	ART::GenerateKeys(lstate.arena_allocator, lstate.key_chunk, lstate.keys);
 
 	auto &storage = table.GetStorage();
+	// 这里构建本地ART
 	auto art = make_uniq<ART>(lstate.local_index->column_ids, lstate.local_index->table_io_manager,
 	                          lstate.local_index->unbound_expressions, lstate.local_index->constraint_type, storage.db);
 	if (!art->ConstructFromSorted(lstate.key_chunk.size(), lstate.keys, row_identifiers)) {
 		throw ConstraintException("Data contains duplicates on indexed column(s)");
 	}
 
+	// 合并到local state ART中
 	// merge into the local ART
 	if (!lstate.local_index->MergeIndexes(*art)) {
 		throw ConstraintException("Data contains duplicates on indexed column(s)");
@@ -117,6 +119,7 @@ void PhysicalCreateIndex::Combine(ExecutionContext &context, GlobalSinkState &gs
 	auto &gstate = gstate_p.Cast<CreateIndexGlobalSinkState>();
 	auto &lstate = lstate_p.Cast<CreateIndexLocalSinkState>();
 
+	// 合并到global ART
 	// merge the local index into the global index
 	if (!gstate.global_index->MergeIndexes(*lstate.local_index)) {
 		throw ConstraintException("Data contains duplicates on indexed column(s)");
@@ -134,6 +137,7 @@ SinkFinalizeType PhysicalCreateIndex::Finalize(Pipeline &pipeline, Event &event,
 		throw TransactionException("Transaction conflict: cannot add an index to a table that has been altered!");
 	}
 
+	// 在schema中创建index catalog
 	auto &schema = table.schema;
 	auto index_entry = schema.CreateIndex(context, *info, table).get();
 	if (!index_entry) {
@@ -142,12 +146,14 @@ SinkFinalizeType PhysicalCreateIndex::Finalize(Pipeline &pipeline, Event &event,
 	}
 	auto &index = index_entry->Cast<DuckIndexEntry>();
 
+	// 直接引用
 	index.index = state.global_index.get();
 	index.info = storage.info;
 	for (auto &parsed_expr : info->parsed_expressions) {
 		index.parsed_expressions.push_back(parsed_expr->Copy());
 	}
 
+	// 执行内存清理
 	// vacuum excess memory
 	state.global_index->Vacuum();
 

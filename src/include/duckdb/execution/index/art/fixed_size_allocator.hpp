@@ -55,6 +55,7 @@ public:
 
 	//! Buffers containing the data
 	vector<BufferEntry> buffers;
+	// 记录未填满的buffer
 	//! Buffers with free space
 	unordered_set<idx_t> buffers_with_free_space;
 

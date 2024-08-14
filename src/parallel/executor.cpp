@@ -16,6 +16,7 @@
 #include "duckdb/parallel/thread_context.hpp"
 
 #include <algorithm>
+#include <iostream>
 
 namespace duckdb {
 
@@ -70,6 +71,7 @@ void Executor::SchedulePipeline(const shared_ptr<MetaPipeline> &meta_pipeline, S
 	auto &event_map = event_data.event_map;
 
 	// create events/stack for the base pipeline
+	// 根据meta_pipeline中的pipelines[0],创建4个事件:initialize -> event -> finish -> complete
 	auto base_pipeline = meta_pipeline->GetBasePipeline();
 	auto base_initialize_event = make_shared<PipelineInitializeEvent>(base_pipeline);
 	auto base_event = make_shared<PipelineEvent>(base_pipeline);
@@ -82,11 +84,13 @@ void Executor::SchedulePipeline(const shared_ptr<MetaPipeline> &meta_pipeline, S
 	events.push_back(std::move(base_complete_event));
 
 	// dependencies: initialize -> event -> finish -> complete
+	// 建立事件的依赖关系
 	base_stack.pipeline_event.AddDependency(base_stack.pipeline_initialize_event);
 	base_stack.pipeline_finish_event.AddDependency(base_stack.pipeline_event);
 	base_stack.pipeline_complete_event.AddDependency(base_stack.pipeline_finish_event);
 
 	// create an event and stack for all pipelines in the MetaPipeline
+	// 将MetaPipeline内部,后面的Pipeline进行事件注册
 	vector<shared_ptr<Pipeline>> pipelines;
 	meta_pipeline->GetPipelines(pipelines, false);
 	for (idx_t i = 1; i < pipelines.size(); i++) { // loop starts at 1 because 0 is the base pipeline
@@ -126,11 +130,16 @@ void Executor::SchedulePipeline(const shared_ptr<MetaPipeline> &meta_pipeline, S
 		if (source->type == PhysicalOperatorType::TABLE_SCAN) {
 			// we have to reset the source here (in the main thread), because some of our clients (looking at you, R)
 			// do not like it when threads other than the main thread call into R, for e.g., arrow scans
+
+			// 强制初始化 Global Source State
 			pipeline->ResetSource(true);
+			std::cout << "init source" << std::endl;
 		}
 
 		auto dependencies = meta_pipeline->GetDependencies(pipeline.get());
+		std::cout << "check depen : " << (void *)pipeline.get() << std::endl;
 		if (!dependencies) {
+			std::cout << "no dependencies" << std::endl;
 			continue;
 		}
 		auto root_entry = event_map.find(*pipeline);
@@ -149,12 +158,14 @@ void Executor::ScheduleEventsInternal(ScheduleEventData &event_data) {
 	auto &events = event_data.events;
 	D_ASSERT(events.empty());
 
+	// 整理所有的child meta pipeline
 	// create all the required pipeline events
 	for (auto &pipeline : event_data.meta_pipelines) {
 		SchedulePipeline(pipeline, event_data);
 	}
 
 	// set up the dependencies across MetaPipelines
+	// 这里设置跨 meta pipeline 的执行依赖,即将依赖的目标事件 pipeline_complete_event 添加到 本事件的 pipeline_event
 	auto &event_map = event_data.event_map;
 	for (auto &entry : event_map) {
 		auto &pipeline = entry.first.get();
@@ -164,15 +175,19 @@ void Executor::ScheduleEventsInternal(ScheduleEventData &event_data) {
 			auto event_map_entry = event_map.find(*dep);
 			D_ASSERT(event_map_entry != event_map.end());
 			auto &dep_entry = event_map_entry->second;
+			// entry.second.pipeline_event ->(添加新依赖,依赖的pipeline_complete_event 事件) dep_entry.pipeline_complete_event
 			entry.second.pipeline_event.AddDependency(dep_entry.pipeline_complete_event);
 		}
 	}
 
 	// verify that we have no cyclic dependencies
+	// 确认是否有循环依赖
 	VerifyScheduledEvents(event_data);
 
 	// schedule the pipelines that do not have dependencies
+	std::cout << "schedule event size : " << events.size() << std::endl;
 	for (auto &event : events) {
+		std::cout << "HasDependencies : " << event->HasDependencies() << std::endl;
 		if (!event->HasDependencies()) {
 			event->Schedule();
 		}
@@ -253,7 +268,11 @@ bool Executor::NextExecutor() {
 	if (root_pipeline_idx >= root_pipelines.size()) {
 		return false;
 	}
+	// 初始化GlobalSourceState
 	root_pipelines[root_pipeline_idx]->Reset();
+
+	// L341,拿到了执行计划的root节点,这里创建root executor
+	// 在sql select * from table_name 中,这个root_executor不会用到，直接从PhysicalResultCollector的派生类中可以直接拿到
 	root_executor = make_uniq<PipelineExecutor>(context, *root_pipelines[root_pipeline_idx]);
 	root_pipeline_idx++;
 	return true;
@@ -299,18 +318,23 @@ void Executor::Initialize(PhysicalOperator &plan) {
 
 void Executor::InitializeInternal(PhysicalOperator &plan) {
 
+	// 根据物理执行计划创建pipeline任务
 	auto &scheduler = TaskScheduler::GetScheduler(context);
 	{
 		lock_guard<mutex> elock(executor_lock);
 		physical_plan = &plan;
 
+		// profiler 用于计算查询时间
 		this->profiler = ClientData::Get(context).profiler;
 		profiler->Initialize(plan);
+
+		// 创建 Producer.Token
 		this->producer = scheduler.CreateProducer();
 
 		// build and ready the pipelines
 		PipelineBuildState state;
 		auto root_pipeline = make_shared<MetaPipeline>(*this, state, nullptr);
+		std::cout << "physical plan : " << int(physical_plan->type) << std::endl;
 		root_pipeline->Build(*physical_plan);
 		root_pipeline->Ready();
 
@@ -321,17 +345,22 @@ void Executor::InitializeInternal(PhysicalOperator &plan) {
 		}
 
 		// set root pipelines, i.e., all pipelines that end in the final sink
+		// root_pipelines,只获取root节点上的pipelines
 		root_pipeline->GetPipelines(root_pipelines, false);
 		root_pipeline_idx = 0;
+		std::cout << "root pipelines : " << root_pipelines.size() << std::endl;
 
 		// collect all meta-pipelines from the root pipeline
+		// 获取除root节点外的所有child节点的meta-pipelines
 		vector<shared_ptr<MetaPipeline>> to_schedule;
 		root_pipeline->GetMetaPipelines(to_schedule, true, true);
 
 		// number of 'PipelineCompleteEvent's is equal to the number of meta pipelines, so we have to set it here
 		total_pipelines = to_schedule.size();
+		std::cout << "scheduler total pipelines : " << total_pipelines << std::endl;
 
 		// collect all pipelines from the root pipelines (recursively) for the progress bar and verify them
+		// pipelines,除了包含root节点的pipelines外,递归包含其child节点的pipelines,这里主要做验证
 		root_pipeline->GetPipelines(pipelines, true);
 
 		// finally, verify and schedule
@@ -398,6 +427,7 @@ PendingExecutionResult Executor::ExecuteTask() {
 			scheduler.GetTaskFromProducer(*producer, task);
 		}
 		if (task) {
+			std::cout << "get partially task to exec" << std::endl;
 			// if we have a task, partially process it
 			auto result = task->Execute(TaskExecutionMode::PROCESS_PARTIAL);
 			if (result != TaskExecutionResult::TASK_NOT_FINISHED) {

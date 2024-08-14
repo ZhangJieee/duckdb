@@ -10,6 +10,8 @@
 #include "duckdb/storage/table/column_data_checkpointer.hpp"
 #include "duckdb/storage/table/column_segment.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
+#include <iostream>
+#include <string>
 
 namespace duckdb {
 
@@ -124,6 +126,7 @@ struct FixedSizeScanState : public SegmentScanState {
 unique_ptr<SegmentScanState> FixedSizeInitScan(ColumnSegment &segment) {
 	auto result = make_uniq<FixedSizeScanState>();
 	auto &buffer_manager = BufferManager::GetBufferManager(segment.db);
+	// 这里最终会将磁盘上的block加载到内存中
 	result->handle = buffer_manager.Pin(segment.block);
 	return std::move(result);
 }
@@ -143,6 +146,7 @@ void FixedSizeScanPartial(ColumnSegment &segment, ColumnScanState &state, idx_t 
 	// copy the data from the base table
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	memcpy(FlatVector::GetData(result) + result_offset * sizeof(T), source_data, scan_count * sizeof(T));
+	std::cout << "FixedSizeScanPartial  result : " << result.ToString(1) << std::endl;
 }
 
 template <class T>
@@ -187,11 +191,13 @@ struct StandardFixedSizeAppend {
 	                   idx_t offset, idx_t count) {
 		auto sdata = (T *)adata.data;
 		auto tdata = (T *)target;
+		std::cout << "Append (!adata.validity.AllValid()) : " << (!adata.validity.AllValid()) << std::endl;
 		if (!adata.validity.AllValid()) {
 			for (idx_t i = 0; i < count; i++) {
 				auto source_idx = adata.sel->get_index(offset + i);
 				auto target_idx = target_offset + i;
 				bool is_null = !adata.validity.RowIsValid(source_idx);
+				std::cout << "is_null : " << is_null << std::endl;
 				if (!is_null) {
 					NumericStats::Update<T>(stats.statistics, sdata[source_idx]);
 					tdata[target_idx] = sdata[source_idx];

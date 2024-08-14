@@ -4,6 +4,7 @@
 #include "duckdb/execution/execution_context.hpp"
 #include "duckdb/storage/statistics/base_statistics.hpp"
 #include "duckdb/planner/expression/list.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -72,7 +73,9 @@ void ExpressionExecutor::Execute(DataChunk *input, DataChunk &result) {
 	D_ASSERT(expressions.size() == result.ColumnCount());
 	D_ASSERT(!expressions.empty());
 
+	std::cout << "ExpressionExecutor::Execute : " << expressions.size() << std::endl;
 	for (idx_t i = 0; i < expressions.size(); i++) {
+		std::cout << expressions[i]->ToString() << std::endl;
 		ExecuteExpression(i, result.data[i]);
 	}
 	result.SetCardinality(input ? input->size() : 1);
@@ -176,7 +179,8 @@ void ExpressionExecutor::Execute(const Expression &expr, ExpressionState *state,
 		D_ASSERT(FlatVector::Validity(result).CheckAllValid(count));
 	}
 #endif
-
+    std::cout << "ExpressionExecutor::Execute count : " << count << std::endl;
+	std::cout << "ExpressionExecutor::Execute expr class : " << int(expr.expression_class) << std::endl;
 	if (count == 0) {
 		return;
 	}
@@ -224,6 +228,7 @@ idx_t ExpressionExecutor::Select(const Expression &expr, ExpressionState *state,
 	}
 	D_ASSERT(true_sel || false_sel);
 	D_ASSERT(expr.return_type.id() == LogicalTypeId::BOOLEAN);
+	std::cout << "ExpressionExecutor::Select expr_class : " << int(expr.expression_class) << std::endl;
 	switch (expr.expression_class) {
 	case ExpressionClass::BOUND_BETWEEN:
 		return Select(expr.Cast<BoundBetweenExpression>(), state, sel, count, true_sel, false_sel);

@@ -14,6 +14,7 @@ ColumnDataCheckpointer::ColumnDataCheckpointer(ColumnData &col_data_p, RowGroup 
       intermediate(is_validity ? LogicalType::BOOLEAN : GetType(), true, is_validity),
       checkpoint_info(checkpoint_info_p) {
 	auto &config = DBConfig::GetConfig(GetDatabase());
+	// 这里根据列类型获取到当前支持的所有压缩方法
 	auto functions = config.GetCompressionFunctions(GetType().InternalType());
 	for (auto &func : functions) {
 		compression_functions.push_back(&func.get());
@@ -48,6 +49,7 @@ void ColumnDataCheckpointer::ScanSegments(const std::function<void(Vector &, idx
 		scan_state.current = segment;
 		segment->InitializeScan(scan_state);
 
+		// 这里会Scan当前segment,确认Updates中是否有相关committed信息
 		for (idx_t base_row_index = 0; base_row_index < segment->count; base_row_index += STANDARD_VECTOR_SIZE) {
 			scan_vector.Reference(intermediate);
 
@@ -95,6 +97,7 @@ unique_ptr<AnalyzeState> ColumnDataCheckpointer::DetectBestCompressionMethod(idx
 	auto &config = DBConfig::GetConfig(GetDatabase());
 	CompressionType forced_method = CompressionType::COMPRESSION_AUTO;
 
+	// 这里获取到的是该列上一次的压缩方式,默认是AUTO
 	auto compression_type = checkpoint_info.compression_type;
 	if (compression_type != CompressionType::COMPRESSION_AUTO) {
 		forced_method = ForceCompression(compression_functions, compression_type);
@@ -114,6 +117,7 @@ unique_ptr<AnalyzeState> ColumnDataCheckpointer::DetectBestCompressionMethod(idx
 		analyze_states.push_back(compression_functions[i]->init_analyze(col_data, col_data.type.InternalType()));
 	}
 
+	// 遍历当前列的所有数据段,进行数据分析,过滤无效压缩算法
 	// scan over all the segments and run the analyze step
 	ScanSegments([&](Vector &scan_vector, idx_t count) {
 		for (idx_t i = 0; i < compression_functions.size(); i++) {
@@ -171,6 +175,7 @@ void ColumnDataCheckpointer::WriteToDisk() {
 	auto &block_manager = col_data.GetBlockManager();
 	for (idx_t segment_idx = 0; segment_idx < nodes.size(); segment_idx++) {
 		auto segment = nodes[segment_idx].node.get();
+		// 针对从磁盘load的数据block标记Modified
 		if (segment->segment_type == ColumnSegmentType::PERSISTENT) {
 			// persistent segment has updates: mark it as modified and rewrite the block with the merged updates
 			auto block_id = segment->GetBlockId();
@@ -180,6 +185,7 @@ void ColumnDataCheckpointer::WriteToDisk() {
 		}
 	}
 
+	// 检测选择最好的压缩算法
 	// now we need to write our segment
 	// we will first run an analyze step that determines which compression function to use
 	idx_t compression_idx;
@@ -192,8 +198,10 @@ void ColumnDataCheckpointer::WriteToDisk() {
 	// now that we have analyzed the compression functions we can start writing to disk
 	auto best_function = compression_functions[compression_idx];
 	auto compress_state = best_function->init_compression(*this, std::move(analyze_state));
+	// 开始进行数据压缩
 	ScanSegments(
 	    [&](Vector &scan_vector, idx_t count) { best_function->compress(*compress_state, scan_vector, count); });
+	// 这里内部会调用ColumnCheckpointState::FlushSegment将本列数据flush to disk
 	best_function->compress_finalize(*compress_state);
 
 	nodes.clear();

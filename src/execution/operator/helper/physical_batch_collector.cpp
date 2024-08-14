@@ -2,6 +2,7 @@
 #include "duckdb/common/types/batched_data_collection.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -32,6 +33,7 @@ public:
 SinkResultType PhysicalBatchCollector::Sink(ExecutionContext &context, GlobalSinkState &gstate,
                                             LocalSinkState &lstate_p, DataChunk &input) const {
 	auto &state = lstate_p.Cast<BatchCollectorLocalState>();
+	// 这里内部通过排序树针对batch_index进行排序，最后遍历树自然获取到有序结果
 	state.data.Append(input, state.batch_index);
 	return SinkResultType::NEED_MORE_INPUT;
 }
@@ -52,6 +54,7 @@ SinkFinalizeType PhysicalBatchCollector::Finalize(Pipeline &pipeline, Event &eve
 	D_ASSERT(collection);
 	auto result = make_uniq<MaterializedQueryResult>(statement_type, properties, names, std::move(collection),
 	                                                 context.GetClientProperties());
+	std::cout << "PhysicalBatchCollector::Finalize result : " << result->ToString() << std::endl;
 	gstate.result = std::move(result);
 	return SinkFinalizeType::READY;
 }

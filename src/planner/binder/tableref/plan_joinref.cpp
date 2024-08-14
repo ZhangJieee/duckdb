@@ -38,6 +38,7 @@ static bool CreateJoinCondition(Expression &expr, const unordered_set<idx_t> &le
 		}
 		condition.left = std::move(left);
 		condition.right = std::move(right);
+		std::cout << "CreateJoinCondition add to conditions : " << std::endl;;
 		conditions.push_back(std::move(condition));
 		return true;
 	}
@@ -51,8 +52,11 @@ void LogicalComparisonJoin::ExtractJoinConditions(JoinType type, unique_ptr<Logi
                                                   vector<unique_ptr<Expression>> &expressions,
                                                   vector<JoinCondition> &conditions,
                                                   vector<unique_ptr<Expression>> &arbitrary_expressions) {
+	std::cout << "ExtractJoinConditions expressions : " << expressions.size() << std::endl;
 	for (auto &expr : expressions) {
+		std::cout << "expr : " << expr->ToString() << std::endl;
 		auto total_side = JoinSide::GetJoinSide(*expr, left_bindings, right_bindings);
+		std::cout << "(total_side != JoinSide::BOTH) " << (total_side != JoinSide::BOTH) << std::endl;
 		if (total_side != JoinSide::BOTH) {
 			// join condition does not reference both sides, add it as filter under the join
 			if (type == JoinType::LEFT && total_side == JoinSide::RIGHT) {
@@ -73,6 +77,7 @@ void LogicalComparisonJoin::ExtractJoinConditions(JoinType type, unique_ptr<Logi
 		           expr->type == ExpressionType::COMPARE_DISTINCT_FROM ||
 		           expr->type == ExpressionType::COMPARE_NOT_DISTINCT_FROM) {
 			// comparison, check if we can create a comparison JoinCondition
+			std::cout << "CreateJoinCondition ..." << std::endl;
 			if (CreateJoinCondition(*expr, left_bindings, right_bindings, conditions)) {
 				// successfully created the join condition
 				continue;

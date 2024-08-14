@@ -65,6 +65,7 @@ data_ptr_t ArenaAllocator::Allocate(idx_t len) {
 			current_capacity *= 2;
 		} while (current_capacity < len);
 		auto new_chunk = make_uniq<ArenaChunk>(allocator, current_capacity);
+		// 头插
 		if (head) {
 			head->prev = new_chunk.get();
 			new_chunk->next = std::move(head);

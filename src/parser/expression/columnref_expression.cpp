@@ -7,6 +7,7 @@
 
 #include "duckdb/common/serializer/format_serializer.hpp"
 #include "duckdb/common/serializer/format_deserializer.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -56,6 +57,7 @@ string ColumnRefExpression::GetName() const {
 string ColumnRefExpression::ToString() const {
 	string result;
 	for (idx_t i = 0; i < column_names.size(); i++) {
+		std::cout << "col name : " << column_names[i] << std::endl;
 		if (i > 0) {
 			result += ".";
 		}

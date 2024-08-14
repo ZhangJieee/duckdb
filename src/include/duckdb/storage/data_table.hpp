@@ -218,6 +218,7 @@ private:
 	shared_ptr<RowGroupCollection> row_groups;
 	//! Whether or not the data table is the root DataTable for this table; the root DataTable is the newest version
 	//! that can be appended to
+	// 这里支持表的多个版本，位于root节点的DataTable是最新的表版本，通过该字段标识
 	atomic<bool> is_root;
 };
 } // namespace duckdb

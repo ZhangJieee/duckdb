@@ -82,6 +82,7 @@ private:
 		BufferManager *buffer_manager;
 	} alloc;
 	//! The set of blocks used by the column data collection
+	// 这里记录所有分配的block信息
 	vector<BlockMetaData> blocks;
 	//! The set of allocated data
 	vector<AllocatedData> allocated_data;

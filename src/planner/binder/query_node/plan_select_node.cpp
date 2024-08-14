@@ -5,6 +5,7 @@
 #include "duckdb/planner/operator/logical_dummy_scan.hpp"
 #include "duckdb/planner/operator/logical_limit.hpp"
 #include "duckdb/planner/query_node/bound_select_node.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -18,7 +19,9 @@ unique_ptr<LogicalOperator> Binder::PlanFilter(unique_ptr<Expression> condition,
 unique_ptr<LogicalOperator> Binder::CreatePlan(BoundSelectNode &statement) {
 	unique_ptr<LogicalOperator> root;
 	D_ASSERT(statement.from_table);
+	// 创建计划,从目标table中读取数据
 	root = CreatePlan(*statement.from_table);
+	std::cout << "from table operator type : " << int(root->type) << std::endl;
 	D_ASSERT(root);
 
 	// plan the sample clause
@@ -26,18 +29,22 @@ unique_ptr<LogicalOperator> Binder::CreatePlan(BoundSelectNode &statement) {
 		root = make_uniq<LogicalSample>(std::move(statement.sample_options), std::move(root));
 	}
 
+	// 根据 where 语句过滤
 	if (statement.where_clause) {
+		std::cout << "statement.where_clause : " << statement.where_clause->ToString() << std::endl;
 		root = PlanFilter(std::move(statement.where_clause), std::move(root));
 	}
 
 	if (!statement.aggregates.empty() || !statement.groups.group_expressions.empty()) {
 		if (!statement.groups.group_expressions.empty()) {
 			// visit the groups
+			// 处理 group by (TODO)
 			for (auto &group : statement.groups.group_expressions) {
 				PlanSubqueries(group, root);
 			}
 		}
 		// now visit all aggregate expressions
+		// 处理 聚合函数
 		for (auto &expr : statement.aggregates) {
 			PlanSubqueries(expr, root);
 		}
@@ -58,6 +65,7 @@ unique_ptr<LogicalOperator> Binder::CreatePlan(BoundSelectNode &statement) {
 		root = make_uniq_base<LogicalOperator, LogicalDummyScan>(statement.group_index);
 	}
 
+	// 处理 havind 子句
 	if (statement.having) {
 		PlanSubqueries(statement.having, root);
 		auto having = make_uniq<LogicalFilter>(std::move(statement.having));
@@ -78,6 +86,7 @@ unique_ptr<LogicalOperator> Binder::CreatePlan(BoundSelectNode &statement) {
 		root = std::move(win);
 	}
 
+	// 处理 qualify 子句
 	if (statement.qualify) {
 		PlanSubqueries(statement.qualify, root);
 		auto qualify = make_uniq<LogicalFilter>(std::move(statement.qualify));
@@ -86,6 +95,7 @@ unique_ptr<LogicalOperator> Binder::CreatePlan(BoundSelectNode &statement) {
 		root = std::move(qualify);
 	}
 
+	std::cout << "statement.unnests.size() : " << statement.unnests.size() << std::endl;
 	for (idx_t i = statement.unnests.size(); i > 0; i--) {
 		auto unnest_level = i - 1;
 		auto entry = statement.unnests.find(unnest_level);
@@ -108,6 +118,7 @@ unique_ptr<LogicalOperator> Binder::CreatePlan(BoundSelectNode &statement) {
 		PlanSubqueries(expr, root);
 	}
 
+	// 创建一个Projection
 	auto proj = make_uniq<LogicalProjection>(statement.projection_index, std::move(statement.select_list));
 	auto &projection = *proj;
 	proj->AddChild(std::move(root));

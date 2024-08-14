@@ -2,7 +2,7 @@
 #include "duckdb/common/types/chunk_collection.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
-
+#include <iostream>
 namespace duckdb {
 
 PhysicalMaterializedCollector::PhysicalMaterializedCollector(PreparedStatementData &data, bool parallel)
@@ -27,6 +27,7 @@ public:
 
 SinkResultType PhysicalMaterializedCollector::Sink(ExecutionContext &context, GlobalSinkState &gstate_p,
                                                    LocalSinkState &lstate_p, DataChunk &input) const {
+	std::cout << "PhysicalMaterializedCollector::Sink " << std::endl;
 	auto &lstate = lstate_p.Cast<MaterializedCollectorLocalState>();
 	lstate.collection->Append(lstate.append_state, input);
 	return SinkResultType::NEED_MORE_INPUT;

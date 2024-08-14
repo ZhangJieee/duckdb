@@ -47,6 +47,7 @@
 #include "duckdb/transaction/meta_transaction.hpp"
 #include "duckdb/transaction/transaction.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -147,9 +148,10 @@ void ClientContext::BeginTransactionInternal(ClientContextLock &lock, bool requi
 
 void ClientContext::BeginQueryInternal(ClientContextLock &lock, const string &query) {
 	BeginTransactionInternal(lock, false);
-	LogQueryInternal(lock, query);
+	LogQueryInternal(lock, query); // write the query to log
 	active_query->query = query;
 	query_progress = -1;
+	// 更新当前活跃的sql数量
 	transaction.SetActiveQuery(db->GetDatabaseManager().GetNewQueryNumber());
 }
 
@@ -183,8 +185,10 @@ PreservedError ClientContext::EndQueryInternal(ClientContextLock &lock, bool suc
 			}
 
 			transaction.ResetActiveQuery();
+			std::cout << "ClientContext::EndQueryInternal transaction auto commit : " << transaction.IsAutoCommit() << "\t success : " << success << std::endl;
 			if (transaction.IsAutoCommit()) {
 				if (success) {
+					std::cout << "ClientContext::EndQueryInternal transaction commit" << std::endl;
 					transaction.Commit();
 				} else {
 					transaction.Rollback();
@@ -249,6 +253,7 @@ unique_ptr<QueryResult> ClientContext::FetchResultInternal(ClientContextLock &lo
 	auto &executor = GetExecutor();
 	auto &prepared = *active_query->prepared;
 	bool create_stream_result = prepared.properties.allow_stream_result && pending.allow_stream_result;
+	std::cout << "ClientContext::FetchResultInternal create_stream_result : " << create_stream_result << std::endl;
 	if (create_stream_result) {
 		D_ASSERT(!executor.HasResultCollector());
 		active_query->progress_bar.reset();
@@ -262,6 +267,7 @@ unique_ptr<QueryResult> ClientContext::FetchResultInternal(ClientContextLock &lo
 		return std::move(stream_result);
 	}
 	unique_ptr<QueryResult> result;
+	std::cout << "ClientContext::FetchResultInternal check if quick fetch from result collector : " << executor.HasResultCollector() << std::endl;
 	if (executor.HasResultCollector()) {
 		// we have a result collector - fetch the result directly from the result collector
 		result = executor.GetResult();
@@ -317,6 +323,7 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatement(ClientC
 	auto &profiler = QueryProfiler::Get(*this);
 	profiler.StartQuery(query, IsExplainAnalyze(statement.get()), true);
 	profiler.StartPhase("planner");
+	std::cout << "ClientContext::CreatePreparedStatement values : " << !!values << std::endl;
 	Planner planner(*this);
 	if (values) {
 		for (auto &value : *values) {
@@ -324,6 +331,8 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatement(ClientC
 		}
 	}
 	planner.CreatePlan(std::move(statement));
+	std::cout << "Print Logical Plan : " << std::endl;
+	std::cout << planner.plan->ToString() << std::endl;
 	D_ASSERT(planner.plan || !planner.properties.bound_all_parameters);
 	profiler.EndPhase();
 
@@ -335,12 +344,15 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatement(ClientC
 	result->value_map = std::move(planner.value_map);
 	result->catalog_version = MetaTransaction::Get(*this).catalog_version;
 
+	// the type of the parameter 不能被resloved,见 planner.cpp:89
 	if (!planner.properties.bound_all_parameters) {
 		return result;
 	}
 #ifdef DEBUG
 	plan->Verify(*this);
 #endif
+	// 优化器 TODO
+	std::cout << "(config.enable_optimizer && plan->RequireOptimizer()) : " << (config.enable_optimizer && plan->RequireOptimizer()) << std::endl;
 	if (config.enable_optimizer && plan->RequireOptimizer()) {
 		profiler.StartPhase("optimizer");
 		Optimizer optimizer(*planner.binder, *this);
@@ -353,6 +365,7 @@ shared_ptr<PreparedStatementData> ClientContext::CreatePreparedStatement(ClientC
 #endif
 	}
 
+	std::cout << "ready to convert logical query plan to physical query plan ... " << std::endl;
 	profiler.StartPhase("physical_planner");
 	// now convert logical query plan into a physical query plan
 	PhysicalPlanGenerator physical_planner(*this);
@@ -380,6 +393,7 @@ unique_ptr<PendingQueryResult> ClientContext::PendingPreparedStatement(ClientCon
 	}
 	auto &transaction = MetaTransaction::Get(*this);
 	auto &manager = DatabaseManager::Get(*this);
+	std::cout << "ClientContext::PendingPreparedStatement statement.properties.modified_databases size : " << statement.properties.modified_databases.size() << std::endl;
 	for (auto &modified_database : statement.properties.modified_databases) {
 		auto entry = manager.GetDatabase(*this, modified_database);
 		if (!entry) {
@@ -390,12 +404,15 @@ unique_ptr<PendingQueryResult> ClientContext::PendingPreparedStatement(ClientCon
 			    "Cannot execute statement of type \"%s\" on database \"%s\" which is attached in read-only mode!",
 			    StatementTypeToString(statement.statement_type), modified_database));
 		}
+
+		// record reference of entry in transaction
 		transaction.ModifyDatabase(*entry);
 	}
 
 	// bind the bound values before execution
 	statement.Bind(parameters.parameters ? *parameters.parameters : vector<Value>());
 
+	// 初始化执行器
 	active_query->executor = make_uniq<Executor>(*this);
 	auto &executor = *active_query->executor;
 	if (config.enable_progress_bar) {
@@ -410,6 +427,10 @@ unique_ptr<PendingQueryResult> ClientContext::PendingPreparedStatement(ClientCon
 		query_progress = 0;
 	}
 	auto stream_result = parameters.allow_stream_result && statement.properties.allow_stream_result;
+	std::cout << "stream result : " << stream_result << std::endl;
+	std::cout << "pyhsical statement return type : " << int(statement.properties.return_type) << std::endl;
+
+	// 注册collector,用于生成query最终的结果
 	if (!stream_result && statement.properties.return_type == StatementReturnType::QUERY_RESULT) {
 		unique_ptr<PhysicalResultCollector> collector;
 		auto &config = ClientConfig::GetConfig(*this);
@@ -421,7 +442,13 @@ unique_ptr<PendingQueryResult> ClientContext::PendingPreparedStatement(ClientCon
 	} else {
 		executor.Initialize(*statement.plan);
 	}
+
+	// 物理操作的返回类型
 	auto types = executor.GetTypes();
+	std::cout << " Print physical operator return types : \n";
+	for (auto& t : types) {
+		std::cout << "t : " << int(t.id()) << std::endl;
+	}
 	D_ASSERT(types == statement.types);
 	D_ASSERT(!active_query->open_result);
 
@@ -643,6 +670,7 @@ unique_ptr<PendingQueryResult> ClientContext::PendingStatementOrPreparedStatemen
     ClientContextLock &lock, const string &query, unique_ptr<SQLStatement> statement,
     shared_ptr<PreparedStatementData> &prepared, PendingQueryParameters parameters) {
 	// check if we are on AutoCommit. In this case we should start a transaction.
+	std::cout << "config.AnyVerification() : " << config.AnyVerification() << std::endl;
 	if (statement && config.AnyVerification()) {
 		// query verification is enabled
 		// create a copy of the statement, and use the copy
@@ -702,6 +730,7 @@ unique_ptr<PendingQueryResult> ClientContext::PendingStatementOrPreparedStatemen
 	unique_ptr<PendingQueryResult> result;
 
 	try {
+		// 开启一个事务
 		BeginQueryInternal(lock, query);
 	} catch (FatalException &ex) {
 		// fatal exceptions invalidate the entire database
@@ -714,7 +743,7 @@ unique_ptr<PendingQueryResult> ClientContext::PendingStatementOrPreparedStatemen
 	} catch (std::exception &ex) {
 		return make_uniq<PendingQueryResult>(PreservedError(ex));
 	}
-	// start the profiler
+	/// TODO start the profiler
 	auto &profiler = QueryProfiler::Get(*this);
 	profiler.StartQuery(query, IsExplainAnalyze(statement ? statement.get() : prepared->unbound_statement.get()));
 
@@ -796,6 +825,7 @@ unique_ptr<QueryResult> ClientContext::Query(const string &query, bool allow_str
 
 	PreservedError error;
 	vector<unique_ptr<SQLStatement>> statements;
+	// raw sql -> the set of sql statement
 	if (!ParseStatements(*lock, query, statements, error)) {
 		return make_uniq<MaterializedQueryResult>(std::move(error));
 	}

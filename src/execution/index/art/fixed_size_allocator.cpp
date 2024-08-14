@@ -20,7 +20,9 @@ FixedSizeAllocator::FixedSizeAllocator(const idx_t allocation_size, Allocator &a
 	bitmask_count = 0;
 	allocations_per_buffer = 0;
 
+	// 计算一个BUFFER_ALLOC_SIZE,可以支持分配多少个allocation_size
 	while (curr_alloc_size < BUFFER_ALLOC_SIZE) {
+		// 每分配一个bits_per_value后,追加一个sizeof(validity_t),目前理解,一个validity_t可以标记64条数据,每分配一个validity_t,追加分配64条数据
 		if (!bitmask_count || (bitmask_count * bits_per_value) % allocations_per_buffer == 0) {
 			bitmask_count++;
 			curr_alloc_size += sizeof(validity_t);
@@ -37,6 +39,7 @@ FixedSizeAllocator::FixedSizeAllocator(const idx_t allocation_size, Allocator &a
 		curr_alloc_size += remaining_allocations * allocation_size;
 	}
 
+	// 目前理解,这里的内存布局,这里一个buffer中所有的bit mask实例都连续存放,位于buffer的开始部分。这里offset直接跳过bit mask
 	allocation_offset = bitmask_count * sizeof(validity_t);
 }
 
@@ -58,6 +61,7 @@ SwizzleablePointer FixedSizeAllocator::New() {
 		buffers.emplace_back(buffer, 0);
 		buffers_with_free_space.insert(buffer_id);
 
+		// 这里初始化一个buffer中所有的bit mask
 		// set the bitmask
 		ValidityMask mask((validity_t *)buffer);
 		mask.SetAllValid(allocations_per_buffer);
@@ -69,10 +73,12 @@ SwizzleablePointer FixedSizeAllocator::New() {
 
 	auto bitmask_ptr = (validity_t *)buffers[buffer_id].ptr;
 	ValidityMask mask(bitmask_ptr);
+	// 所有的分配单元已经标记是否有效，这里则获取第一个有效的空间单元，根据当前buffer上的已分配数量
 	auto offset = GetOffset(mask, buffers[buffer_id].allocation_count);
 
 	buffers[buffer_id].allocation_count++;
 	total_allocations++;
+	// buffer is full
 	if (buffers[buffer_id].allocation_count == allocations_per_buffer) {
 		buffers_with_free_space.erase(buffer_id);
 	}
@@ -127,6 +133,7 @@ void FixedSizeAllocator::Merge(FixedSizeAllocator &other) {
 
 bool FixedSizeAllocator::InitializeVacuum() {
 
+	// 计算当前已分配的空间中还有多少空闲的node
 	auto total_available_allocations = allocations_per_buffer * buffers.size();
 	auto total_free_positions = total_available_allocations - total_allocations;
 

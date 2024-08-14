@@ -23,6 +23,7 @@ public:
 	uint8_t count;
 	//! Compressed path (prefix)
 	Prefix prefix;
+	// 这里通过目标Byte获取目标child在children中的array index
 	//! Array containing all possible partial key bytes, those not set have an EMPTY_MARKER
 	uint8_t child_index[Node::NODE_256_CAPACITY];
 	//! ART node pointers to the child nodes

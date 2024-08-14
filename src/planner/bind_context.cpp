@@ -208,6 +208,8 @@ unique_ptr<ParsedExpression> BindContext::CreateColumnReference(const string &ca
 		return std::move(result);
 	}
 	auto column_index = binding->GetBindingIndex(column_name);
+	std::cout << "BindContext::CreateColumnReference ColumnIsGenerated : " << ColumnIsGenerated(*binding, column_index) << std::endl;
+	std::cout << "(column_index < binding->names.size() && binding->names[column_index] != column_name) : " << (column_index < binding->names.size() && binding->names[column_index] != column_name) << std::endl;
 	if (ColumnIsGenerated(*binding, column_index)) {
 		return ExpandGeneratedColumn(table_name, column_name);
 	} else if (column_index < binding->names.size() && binding->names[column_index] != column_name) {

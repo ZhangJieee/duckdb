@@ -9,6 +9,7 @@
 #include "duckdb/storage/meta_block_reader.hpp"
 #include "duckdb/storage/table/append_state.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -146,8 +147,10 @@ bool RowGroupCollection::InitializeScanInRowGroup(CollectionScanState &state, Ro
                                                   RowGroup &row_group, idx_t vector_index, idx_t max_row) {
 	state.max_row = max_row;
 	state.row_groups = collection.row_groups.get();
+	std::cout << "RowGroupCollection::InitializeScanInRowGroup : " << !state.column_scans << std::endl;
 	if (!state.column_scans) {
 		// initialize the scan state
+		// 初始化 column scan states
 		state.Initialize(collection.GetTypes());
 	}
 	return row_group.InitializeScanWithOffset(state, vector_index);
@@ -170,6 +173,7 @@ bool RowGroupCollection::NextParallelScan(ClientContext &context, ParallelCollec
 		RowGroupCollection *collection;
 		RowGroup *row_group;
 		{
+			// 每个Thread中初始化LocalSourceState时，串行通过GlbalSourceState中获取RowGroup
 			// select the next row group to scan from the parallel state
 			lock_guard<mutex> l(state.lock);
 			if (!state.current_row_group || state.current_row_group->count == 0) {
@@ -178,6 +182,7 @@ bool RowGroupCollection::NextParallelScan(ClientContext &context, ParallelCollec
 			}
 			collection = state.collection;
 			row_group = state.current_row_group;
+			// 针对小表，强制并行化
 			if (ClientConfig::GetConfig(context).verify_parallelism) {
 				vector_index = state.vector_index;
 				max_row = state.current_row_group->start +
@@ -267,6 +272,7 @@ void RowGroupCollection::Fetch(TransactionData transaction, DataChunk &result, c
 			}
 			row_group = row_groups->GetSegmentByIndex(l, segment_index);
 		}
+		// 这里主要是根据RowGroup中的version info 来判断目标行是否对本事务可见
 		if (!row_group->Fetch(transaction, row_id - row_group->start)) {
 			continue;
 		}
@@ -303,6 +309,7 @@ void RowGroupCollection::InitializeAppend(TransactionData transaction, TableAppe
 
 	// start writing to the row_groups
 	auto l = row_groups->Lock();
+	std::cout << "RowGroupCollection::InitializeAppend IsEmpty(l) : " << IsEmpty(l) << std::endl;
 	if (IsEmpty(l)) {
 		// empty row group collection: empty first row group
 		AppendRowGroup(l, row_start);
@@ -330,6 +337,7 @@ bool RowGroupCollection::Append(DataChunk &chunk, TableAppendState &state) {
 	bool new_row_group = false;
 	idx_t append_count = chunk.size();
 	idx_t remaining = chunk.size();
+	std::cout << "RowGroupCollection::Append chunk.size : " << chunk.size() << std::endl;
 	state.total_append_count += append_count;
 	while (true) {
 		auto current_row_group = state.row_group_append_state.row_group;
@@ -344,6 +352,7 @@ bool RowGroupCollection::Append(DataChunk &chunk, TableAppendState &state) {
 				current_row_group->MergeIntoStatistics(i, stats.GetStats(i).Statistics());
 			}
 		}
+		std::cout << "remaining : " << remaining << "\tappend_count : " << append_count << std::endl;
 		remaining -= append_count;
 		if (state.remaining > 0) {
 			state.remaining -= append_count;
@@ -386,7 +395,9 @@ bool RowGroupCollection::Append(DataChunk &chunk, TableAppendState &state) {
 }
 
 void RowGroupCollection::FinalizeAppend(TransactionData transaction, TableAppendState &state) {
+	// 总共追加写入的row nums
 	auto remaining = state.total_append_count;
+	// 这里指向的row group，是刚将数据写入其中的实例
 	auto row_group = state.start_row_group;
 	while (remaining > 0) {
 		auto append_count = MinValue<idx_t>(remaining, RowGroup::ROW_GROUP_SIZE - row_group->count);

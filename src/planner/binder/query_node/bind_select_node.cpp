@@ -20,6 +20,7 @@
 #include "duckdb/planner/expression_binder/where_binder.hpp"
 #include "duckdb/planner/query_node/bound_select_node.hpp"
 #include "duckdb/parser/expression/conjunction_expression.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -265,6 +266,7 @@ void Binder::BindModifierTypes(BoundQueryNode &result, const vector<LogicalType>
 unique_ptr<BoundQueryNode> Binder::BindNode(SelectNode &statement) {
 	D_ASSERT(statement.from_table);
 	// first bind the FROM table statement
+	// 这里先bind From table statement,并创建逻辑执行动作 : LogicalGet
 	auto from = std::move(statement.from_table);
 	auto from_table = Bind(*from);
 	return BindSelectNode(statement, std::move(from_table));
@@ -316,6 +318,9 @@ unique_ptr<BoundQueryNode> Binder::BindSelectNode(SelectNode &statement, unique_
 	}
 
 	// visit the select list and expand any "*" statements
+	std::cout << "Binder::BindSelectNode statement.select_list : " << statement.select_list.size() << std::endl;
+	statement.select_list[0]->Print();
+
 	vector<unique_ptr<ParsedExpression>> new_select_list;
 	ExpandStarExpressions(statement.select_list, new_select_list);
 
@@ -323,14 +328,18 @@ unique_ptr<BoundQueryNode> Binder::BindSelectNode(SelectNode &statement, unique_
 		throw BinderException("SELECT list is empty after resolving * expressions!");
 	}
 	statement.select_list = std::move(new_select_list);
+	std::cout << "Binder::BindSelectNode after expand statement.select_list : " << statement.select_list.size() << std::endl;
 
 	// create a mapping of (alias -> index) and a mapping of (Expression -> index) for the SELECT list
 	case_insensitive_map_t<idx_t> alias_map;
 	parsed_expression_map_t<idx_t> projection_map;
 	for (idx_t i = 0; i < statement.select_list.size(); i++) {
 		auto &expr = statement.select_list[i];
+		std::cout << "statement.select_list i : " << i << "\t expr class : " << int(expr->GetExpressionClass()) << "\texpr alias : " << expr->alias << std::endl;
+		expr->Print();
 		result->names.push_back(expr->GetName());
 		ExpressionBinder::QualifyColumnNames(*this, expr);
+		std::cout << "expr alias : " << expr->alias << std::endl;
 		if (!expr->alias.empty()) {
 			alias_map[expr->alias] = i;
 			result->names[i] = expr->alias;
@@ -418,6 +427,7 @@ unique_ptr<BoundQueryNode> Binder::BindSelectNode(SelectNode &statement, unique_
 	vector<LogicalType> internal_sql_types;
 	vector<idx_t> group_by_all_indexes;
 	vector<string> new_names;
+	// 这里针对上面解析出来的select list,生成对应的BoundExpression
 	for (idx_t i = 0; i < statement.select_list.size(); i++) {
 		bool is_window = statement.select_list[i]->IsWindow();
 		idx_t unnest_count = result->unnests.size();
@@ -426,6 +436,7 @@ unique_ptr<BoundQueryNode> Binder::BindSelectNode(SelectNode &statement, unique_
 		bool is_original_column = i < result->column_count;
 		bool can_group_by_all =
 		    statement.aggregate_handling == AggregateHandling::FORCE_AGGREGATES && is_original_column;
+		std::cout << "select_binder.HasExpandedExpressions() : " << select_binder.HasExpandedExpressions() << std::endl;
 		if (select_binder.HasExpandedExpressions()) {
 			if (!is_original_column) {
 				throw InternalException("Only original columns can have expanded expressions");
@@ -443,6 +454,7 @@ unique_ptr<BoundQueryNode> Binder::BindSelectNode(SelectNode &statement, unique_
 			struct_expressions.clear();
 			continue;
 		}
+		std::cout << "(can_group_by_all && select_binder.HasBoundColumns()) : " << (can_group_by_all && select_binder.HasBoundColumns()) << std::endl;
 		if (can_group_by_all && select_binder.HasBoundColumns()) {
 			if (select_binder.BoundAggregates()) {
 				throw BinderException("Cannot mix aggregates with non-aggregated columns!");
@@ -477,6 +489,7 @@ unique_ptr<BoundQueryNode> Binder::BindSelectNode(SelectNode &statement, unique_
 	}
 	result->column_count = new_names.size();
 	result->names = std::move(new_names);
+	// 列裁剪
 	result->need_prune = result->select_list.size() > result->column_count;
 
 	// in the normal select binder, we bind columns as if there is no aggregation

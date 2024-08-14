@@ -67,6 +67,7 @@ class LogicalUpdate;
 class CreateStatement;
 
 //! The Catalog object represents the catalog of the database.
+// 用于记录数据库的meta data
 class Catalog {
 public:
 	explicit Catalog(AttachedDatabase &db);

@@ -13,6 +13,7 @@
 #include "duckdb/parser/parser_extension.hpp"
 
 #include "parser/parser.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -177,6 +178,7 @@ void Parser::ParseQuery(const string &query) {
 		last_statement->stmt_length = query.size() - last_statement->stmt_location;
 		for (auto &statement : statements) {
 			statement->query = query;
+			std::cout << "statement type : " << int(statement->type) << std::endl;
 			if (statement->type == StatementType::CREATE_STATEMENT) {
 				auto &create = statement->Cast<CreateStatement>();
 				create.info->sql = query.substr(statement->stmt_location, statement->stmt_length);

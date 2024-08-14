@@ -2,6 +2,7 @@
 #include "duckdb/parser/column_definition.hpp"
 #include "duckdb/common/set.hpp"
 #include "duckdb/common/queue.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -222,6 +223,7 @@ stack<LogicalIndex> ColumnDependencyManager::GetBindOrder(const ColumnList &colu
 	queue<LogicalIndex> to_visit;
 	logical_index_set_t visited;
 
+	std::cout << "ColumnDependencyManager::GetBindOrder direct_dependencies.size : " << direct_dependencies.size() << std::endl;
 	for (auto &entry : direct_dependencies) {
 		auto dependent = entry.first;
 		//! Skip the dependents that are also dependencies
@@ -263,6 +265,7 @@ stack<LogicalIndex> ColumnDependencyManager::GetBindOrder(const ColumnList &colu
 		}
 		bind_order.push(col.Logical());
 	}
+	std::cout << "ColumnDependencyManager::GetBindOrder bind_order.size : " << bind_order.size() << std::endl;
 
 	return bind_order;
 }

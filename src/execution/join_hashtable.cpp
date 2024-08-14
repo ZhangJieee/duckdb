@@ -54,6 +54,7 @@ JoinHashTable::JoinHashTable(BufferManager &buffer_manager_p, const vector<JoinC
 
 	const auto &offsets = layout.GetOffsets();
 	tuple_size = offsets[condition_types.size() + build_types.size()];
+	// 这里记录同一个hash value的下一个tuple,在实际tuple插入hash后,会更新目标索引上的值到tuple + pointer offset位置,然后将tuple填入该索引上
 	pointer_offset = offsets.back();
 	entry_size = layout.GetRowWidth();
 
@@ -230,6 +231,7 @@ void JoinHashTable::Build(PartitionedTupleDataAppendState &append_state, DataChu
 		source_chunk.data[col_offset].Reference(vfound);
 		col_offset++;
 	}
+	// 末位列填充每个行的hash value
 	source_chunk.data[col_offset].Reference(hash_values);
 	source_chunk.SetCardinality(keys);
 
@@ -242,10 +244,21 @@ void JoinHashTable::Build(PartitionedTupleDataAppendState &append_state, DataChu
 template <bool PARALLEL>
 static inline void InsertHashesLoop(atomic<data_ptr_t> pointers[], const hash_t indices[], const idx_t count,
                                     const data_ptr_t key_locations[], const idx_t pointer_offset) {
+	// pointer_offset的作用
+	// 数据最开始存放在data_collection中,同时提前计算hash value并在每行最后添加一列来存放,为了后续写入HT
+	// 这里HT的冲突处理方式则是链接式,即会通过pointer_offset这一列来存放prev row pointer,HT当前索引上存放当前行
 	for (idx_t i = 0; i < count; i++) {
 		const auto index = indices[i];
 		if (PARALLEL) {
 			data_ptr_t head;
+			/*
+			 * 这里原子性的更新HT在index上的pointer
+			 * 1.获取index上的pointer
+			 * 2.将pointer挂到新tuple的next位置上
+			 * 3.若在这期间index上的pointer没有发生改变,则将新tuple更新到index上
+			 * 	 否则,循环执行1-3
+			 * */
+
 			do {
 				head = pointers[index];
 				Store<data_ptr_t>(head, key_locations[i] + pointer_offset);
@@ -263,12 +276,14 @@ static inline void InsertHashesLoop(atomic<data_ptr_t> pointers[], const hash_t 
 void JoinHashTable::InsertHashes(Vector &hashes, idx_t count, data_ptr_t key_locations[], bool parallel) {
 	D_ASSERT(hashes.GetType().id() == LogicalType::HASH);
 
+	// hash value -> array index
 	// use bitmask to get position in array
 	ApplyBitmask(hashes, count);
 
 	hashes.Flatten(count);
 	D_ASSERT(hashes.GetVectorType() == VectorType::FLAT_VECTOR);
 
+	// target HT
 	auto pointers = (atomic<data_ptr_t> *)hash_map.get();
 	auto indices = FlatVector::GetData<hash_t>(hashes);
 
@@ -312,10 +327,12 @@ void JoinHashTable::Finalize(idx_t chunk_idx_from, idx_t chunk_idx_to, bool para
 	Vector hashes(LogicalType::HASH);
 	auto hash_data = FlatVector::GetData<hash_t>(hashes);
 
+	// 这里local HT merge 到 global HT时,会标记所有数据块为pinned
 	TupleDataChunkIterator iterator(*data_collection, TupleDataPinProperties::KEEP_EVERYTHING_PINNED, chunk_idx_from,
 	                                chunk_idx_to, false);
 	const auto row_locations = iterator.GetRowLocations();
 	do {
+		// 这里load目标chunk区间的hash value
 		const auto count = iterator.GetCurrentChunkCount();
 		for (idx_t i = 0; i < count; i++) {
 			hash_data[i] = Load<hash_t>(row_locations[i] + pointer_offset);
@@ -425,6 +442,7 @@ idx_t ScanStructure::ScanInnerJoin(DataChunk &keys, SelectionVector &result_vect
 		if (result_count > 0) {
 			return result_count;
 		}
+		// 更新目标索引，即切到下一个tuple上,根据当前tuple pointer offset上记录的pointer
 		// no matches found: check the next set of pointers
 		AdvancePointers();
 		if (this->count == 0) {
@@ -838,6 +856,7 @@ idx_t JoinHashTable::FillWithHTOffsets(JoinHTScanState &state, Vector &addresses
 bool JoinHashTable::RequiresExternalJoin(ClientConfig &config, vector<unique_ptr<JoinHashTable>> &local_hts) {
 	total_count = 0;
 	idx_t data_size = 0;
+	// 统计所有local HT的总大小
 	for (auto &ht : local_hts) {
 		auto &local_sink_collection = ht->GetSinkCollection();
 		total_count += local_sink_collection.Count();
@@ -926,6 +945,7 @@ bool JoinHashTable::RequiresPartitioning(ClientConfig &config, vector<unique_ptr
 void JoinHashTable::Partition(JoinHashTable &global_ht) {
 	auto new_sink_collection =
 	    make_uniq<RadixPartitionedTupleData>(buffer_manager, layout, global_ht.radix_bits, layout.ColumnCount() - 1);
+	// 这里将local HT的数据进行repartition,并将其写入到global HT
 	sink_collection->Repartition(*new_sink_collection);
 	sink_collection = std::move(new_sink_collection);
 	global_ht.Merge(*this);
@@ -941,11 +961,13 @@ bool JoinHashTable::PrepareExternalFinalize() {
 		Reset();
 	}
 
+	// 磁盘上的partition已经全部join完成
 	const auto num_partitions = RadixPartitioning::NumberOfPartitions(radix_bits);
 	if (partition_end == num_partitions) {
 		return false;
 	}
 
+	// 这里开始准备下一个Join Partition
 	// Start where we left off
 	auto &partitions = sink_collection->GetPartitions();
 	partition_start = partition_end;
@@ -966,6 +988,7 @@ bool JoinHashTable::PrepareExternalFinalize() {
 	}
 	partition_end = partition_idx;
 
+	// 这里将新分区的数据合并起来,用于后续构建HT
 	// Move the partitions to the main data collection
 	for (partition_idx = partition_start; partition_idx < partition_end; partition_idx++) {
 		data_collection->Combine(*partitions[partition_idx]);
@@ -996,6 +1019,7 @@ unique_ptr<ScanStructure> JoinHashTable::ProbeAndSpill(DataChunk &keys, DataChun
 	Vector hashes(LogicalType::HASH);
 	Hash(keys, *FlatVector::IncrementalSelectionVector(), keys.size(), hashes);
 
+	// External HT,这里确认哪些key是存在于当前的分区内
 	// find out which keys we can match with the current pinned partitions
 	SelectionVector true_sel;
 	SelectionVector false_sel;
@@ -1007,6 +1031,7 @@ unique_ptr<ScanStructure> JoinHashTable::ProbeAndSpill(DataChunk &keys, DataChun
 
 	CreateSpillChunk(spill_chunk, keys, payload, hashes);
 
+	// 不存在于当前分区的信息记录下来，保存到probe_spill中
 	// can't probe these values right now, append to spill
 	spill_chunk.Slice(false_sel, false_count);
 	spill_chunk.Verify();

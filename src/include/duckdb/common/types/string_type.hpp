@@ -128,6 +128,7 @@ public:
 				return false;
 			return (memcmp(a.GetData(), b.GetData(), a.GetSize()) == 0);
 #endif
+			// 注意,这里获取的uint64_t是由length + prefix
 			uint64_t A = Load<uint64_t>((const_data_ptr_t)&a);
 			uint64_t B = Load<uint64_t>((const_data_ptr_t)&b);
 			if (A != B) {

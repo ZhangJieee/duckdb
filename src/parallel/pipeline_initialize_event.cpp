@@ -29,6 +29,7 @@ void PipelineInitializeEvent::Schedule() {
 	// needs to spawn a task to get the chain of tasks for the query plan going
 	vector<unique_ptr<Task>> tasks;
 	tasks.push_back(make_uniq<PipelineInitializeTask>(*pipeline, shared_from_this()));
+	// 入队
 	SetTasks(std::move(tasks));
 }
 

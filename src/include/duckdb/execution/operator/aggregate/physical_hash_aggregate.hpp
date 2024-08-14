@@ -72,7 +72,9 @@ public:
 	//! The grouping sets
 	GroupedAggregateData grouped_aggregate_data;
 
+	// 记录分组列在select list中的索引位置
 	vector<GroupingSet> grouping_sets;
+	// 分区HT
 	//! The radix partitioned hash tables (one per grouping set)
 	vector<HashAggregateGroupingData> groupings;
 	unique_ptr<DistinctAggregateCollectionInfo> distinct_collection_info;

@@ -38,7 +38,7 @@ enum class PhysicalOperatorType : uint8_t {
 	// -----------------------------
 	// Scans
 	// -----------------------------
-	TABLE_SCAN,
+	TABLE_SCAN, // 18
 	DUMMY_SCAN,
 	COLUMN_DATA_SCAN,
 	CHUNK_SCAN,
@@ -49,7 +49,7 @@ enum class PhysicalOperatorType : uint8_t {
 	// -----------------------------
 	// Joins
 	// -----------------------------
-	BLOCKWISE_NL_JOIN,
+	BLOCKWISE_NL_JOIN, // 26
 	NESTED_LOOP_JOIN,
 	HASH_JOIN,
 	CROSS_PRODUCT,
@@ -62,7 +62,7 @@ enum class PhysicalOperatorType : uint8_t {
 	// -----------------------------
 	// SetOps
 	// -----------------------------
-	UNION,
+	UNION, // 36
 	RECURSIVE_CTE,
 
 	// -----------------------------
@@ -76,7 +76,7 @@ enum class PhysicalOperatorType : uint8_t {
 	// -----------------------------
 	// Schema
 	// -----------------------------
-	CREATE_TABLE,
+	CREATE_TABLE, // 42
 	CREATE_TABLE_AS,
 	BATCH_CREATE_TABLE_AS,
 	CREATE_INDEX,
@@ -95,7 +95,7 @@ enum class PhysicalOperatorType : uint8_t {
 	// -----------------------------
 	// Helpers
 	// -----------------------------
-	EXPLAIN,
+	EXPLAIN, // 57
 	EXPLAIN_ANALYZE,
 	EMPTY_RESULT,
 	EXECUTE,

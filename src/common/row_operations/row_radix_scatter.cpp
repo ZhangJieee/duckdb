@@ -10,6 +10,7 @@ void TemplatedRadixScatter(UnifiedVectorFormat &vdata, const SelectionVector &se
                            data_ptr_t *key_locations, const bool desc, const bool has_null, const bool nulls_first,
                            const idx_t offset) {
 	auto source = (T *)vdata.data;
+	std::cout << "radix scatter : " << (void*)key_locations << std::endl;
 	if (has_null) {
 		auto &validity = vdata.validity;
 		const data_t valid = nulls_first ? 1 : 0;
@@ -18,6 +19,7 @@ void TemplatedRadixScatter(UnifiedVectorFormat &vdata, const SelectionVector &se
 		for (idx_t i = 0; i < add_count; i++) {
 			auto idx = sel.get_index(i);
 			auto source_idx = vdata.sel->get_index(idx) + offset;
+			// 如果排序规则为null_first,这里统一在非null的col上最高位添加1,null的col上最高位添加0
 			// write validity and according value
 			if (validity.RowIsValid(source_idx)) {
 				key_locations[i][0] = valid;
@@ -29,23 +31,30 @@ void TemplatedRadixScatter(UnifiedVectorFormat &vdata, const SelectionVector &se
 					}
 				}
 			} else {
+				// null col
 				key_locations[i][0] = invalid;
 				memset(key_locations[i] + 1, '\0', sizeof(T));
 			}
 			key_locations[i] += sizeof(T) + 1;
 		}
 	} else {
+		// 根据新增的行数,获取指定列并填入key_locations的地址上
 		for (idx_t i = 0; i < add_count; i++) {
 			auto idx = sel.get_index(i);
+			// 获取指定列
 			auto source_idx = vdata.sel->get_index(idx) + offset;
 			// write value
+			// 将当前行的目标列信息拷贝到key_locations[i]
 			Radix::EncodeData<T>(key_locations[i], source[source_idx]);
+			std::cout << (void*)key_locations[i] << "store : " << i << "\t offset : " << offset << std::endl;
+			// 整型降序则对整型数据进行取反
 			// invert bits if desc
 			if (desc) {
 				for (idx_t s = 0; s < sizeof(T); s++) {
 					*(key_locations[i] + s) = ~*(key_locations[i] + s);
 				}
 			}
+			// 指针后移
 			key_locations[i] += sizeof(T);
 		}
 	}
@@ -83,8 +92,10 @@ void RadixScatterStringVector(UnifiedVectorFormat &vdata, const SelectionVector 
 		for (idx_t i = 0; i < add_count; i++) {
 			auto idx = sel.get_index(i);
 			auto source_idx = vdata.sel->get_index(idx) + offset;
+			// 针对string类型的数据,这里只记录prefix_len长度的数据
 			// write value
 			Radix::EncodeStringDataPrefix(key_locations[i], source[source_idx], prefix_len);
+			// 针对字符类型数据降序同样取反
 			// invert bits if desc
 			if (desc) {
 				for (idx_t s = 0; s < prefix_len; s++) {
@@ -209,6 +220,14 @@ void RadixScatterStructVector(Vector &v, UnifiedVectorFormat &vdata, idx_t vcoun
 	}
 }
 
+/*
+ * v             目标列
+ * vcount        行数
+ * sel           自增vector
+ * ser_count     = vcount
+ * key_locations 行索引到行地址的映射
+ * width         col宽
+ * */
 void RowOperations::RadixScatter(Vector &v, idx_t vcount, const SelectionVector &sel, idx_t ser_count,
                                  data_ptr_t *key_locations, bool desc, bool has_null, bool nulls_first,
                                  idx_t prefix_len, idx_t width, idx_t offset) {

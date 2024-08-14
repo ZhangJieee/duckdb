@@ -69,6 +69,7 @@ unique_ptr<LocalSinkState> PhysicalOrder::GetLocalSinkState(ExecutionContext &co
 	return make_uniq<OrderLocalSinkState>(context.client, *this);
 }
 
+// DuckDB中的排序是进行了列转行的工作,后续读取时需要行转列,这里相当于实现了部分数据的排序工作
 SinkResultType PhysicalOrder::Sink(ExecutionContext &context, GlobalSinkState &gstate_p, LocalSinkState &lstate_p,
                                    DataChunk &input) const {
 	auto &gstate = gstate_p.Cast<OrderGlobalSinkState>();
@@ -87,21 +88,29 @@ SinkResultType PhysicalOrder::Sink(ExecutionContext &context, GlobalSinkState &g
 	keys.Reset();
 	lstate.key_executor.Execute(input, keys);
 
+	std::cout << "sink input : " << input.ToString() << std::endl;
+	std::cout << "sink keys : " << keys.ToString() << std::endl;
 	auto &payload = lstate.payload;
+	// 通过projections将所有的目标列填充到payload中
 	payload.ReferenceColumns(input, projections);
+	std::cout << "sink payload : " << payload.ToString() << std::endl;
 
 	// Sink the data into the local sort state
 	keys.Verify();
 	input.Verify();
+	// keys 是排序的列block,调用SinkChunk进行数据转行,数据最终存放到block中
+	// 另外，这里按照每个col的排序规则做了处理，比如整型数据降序则直接对数据取反,最后会得到针对所有排序列进行升序排序的排列组合
 	local_sort_state.SinkChunk(keys, payload);
 
 	// When sorting data reaches a certain size, we sort it
+	// 数据达到内存阈值,进行基数排序,结果存到localState的本地的SortedBlock中
 	if (local_sort_state.SizeInBytes() >= gstate.memory_per_thread) {
 		local_sort_state.Sort(global_sort_state, true);
 	}
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
+// 加锁,拷贝sorted block 到 Global State
 void PhysicalOrder::Combine(ExecutionContext &context, GlobalSinkState &gstate_p, LocalSinkState &lstate_p) const {
 	auto &gstate = gstate_p.Cast<OrderGlobalSinkState>();
 	auto &lstate = lstate_p.Cast<OrderLocalSinkState>();
@@ -138,7 +147,7 @@ public:
 	OrderGlobalSinkState &gstate;
 
 public:
-	void Schedule() override {
+	void Schedule() override { // 这里启动核数相同的task进行merge
 		auto &context = pipeline->GetClientContext();
 
 		// Schedule tasks equal to the number of threads, which will each merge multiple partitions
@@ -241,6 +250,7 @@ void PhysicalOrder::GetData(ExecutionContext &context, DataChunk &chunk, GlobalS
 	auto &gstate = gstate_p.Cast<PhysicalOrderGlobalSourceState>();
 	auto &lstate = lstate_p.Cast<PhysicalOrderLocalSourceState>();
 
+	// local state 记录的block scan完成，这里原子性获取下一个block index
 	if (lstate.scanner && lstate.scanner->Remaining() == 0) {
 		lstate.batch_index = gstate.next_batch_index++;
 		lstate.scanner = nullptr;

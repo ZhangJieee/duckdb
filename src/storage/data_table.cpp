@@ -24,6 +24,7 @@
 #include "duckdb/common/types/constraint_conflict_info.hpp"
 #include "duckdb/storage/table/append_state.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -207,6 +208,7 @@ void DataTable::InitializeScanWithOffset(TableScanState &state, const vector<col
 }
 
 idx_t DataTable::MaxThreads(ClientContext &context) {
+	// scan的过程,以RowGroup的个数作为可以并行的最大线程数
 	idx_t parallel_scan_vector_count = RowGroup::ROW_GROUP_VECTOR_COUNT;
 	if (ClientConfig::GetConfig(context).verify_parallelism) {
 		parallel_scan_vector_count = 1;
@@ -223,6 +225,7 @@ void DataTable::InitializeParallelScan(ClientContext &context, ParallelTableScan
 }
 
 bool DataTable::NextParallelScan(ClientContext &context, ParallelTableScanState &state, TableScanState &scan_state) {
+	// DB中的数据Scan完成后,需要考虑local storage中的追加数据
 	if (row_groups->NextParallelScan(context, state.scan_state, scan_state.table_state)) {
 		return true;
 	}
@@ -239,6 +242,7 @@ bool DataTable::NextParallelScan(ClientContext &context, ParallelTableScanState 
 void DataTable::Scan(DuckTransaction &transaction, DataChunk &result, TableScanState &state) {
 	// scan the persistent segments
 	if (state.table_state.Scan(transaction, result)) {
+		std::cout << "DataTable::Scan : " << result.ToString() << std::endl;
 		D_ASSERT(result.size() > 0);
 		return;
 	}
@@ -532,6 +536,7 @@ void DataTable::VerifyNewConstraint(ClientContext &context, DataTable &parent, c
 
 void DataTable::VerifyAppendConstraints(TableCatalogEntry &table, ClientContext &context, DataChunk &chunk,
                                         ConflictManager *conflict_manager) {
+	std::cout << "DataTable::VerifyAppendConstraints table.HasGeneratedColumns() : " << table.HasGeneratedColumns() << std::endl;
 	if (table.HasGeneratedColumns()) {
 		// Verify that the generated columns expression work with the inserted values
 		auto binder = Binder::CreateBinder(context);
@@ -550,6 +555,7 @@ void DataTable::VerifyAppendConstraints(TableCatalogEntry &table, ClientContext 
 	}
 	auto &constraints = table.GetConstraints();
 	auto &bound_constraints = table.GetBoundConstraints();
+	std::cout << "table.GetBoundConstraints() : " << bound_constraints.size() << std::endl;
 	for (idx_t i = 0; i < bound_constraints.size(); i++) {
 		auto &base_constraint = constraints[i];
 		auto &constraint = bound_constraints[i];
@@ -731,6 +737,7 @@ void DataTable::ScanTableSegment(idx_t row_start, idx_t count, const std::functi
 	idx_t current_row = row_start_aligned;
 	while (current_row < end) {
 		state.table_state.ScanCommitted(chunk, TableScanType::TABLE_SCAN_COMMITTED_ROWS);
+		std::cout << "DataTable::ScanTableSegment chunk size : " << chunk.size() << std::endl;
 		if (chunk.size() == 0) {
 			break;
 		}
@@ -742,6 +749,8 @@ void DataTable::ScanTableSegment(idx_t row_start, idx_t count, const std::functi
 		idx_t chunk_end = MinValue<idx_t>(end_row, end);
 		D_ASSERT(chunk_start < chunk_end);
 		idx_t chunk_count = chunk_end - chunk_start;
+		std::cout << "chunk count : " << chunk_count << std::endl;
+		std::cout << "chunk size : " << chunk.size() << std::endl;
 		if (chunk_count != chunk.size()) {
 			D_ASSERT(chunk_count <= chunk.size());
 			// need to slice the chunk before insert
@@ -1107,6 +1116,7 @@ void DataTable::Update(TableCatalogEntry &table, ClientContext &context, Vector 
 	row_ids.Flatten(count);
 	auto ids = FlatVector::GetData<row_t>(row_ids);
 	auto first_id = FlatVector::GetValue<row_t>(row_ids, 0);
+	std::cout << "ids : " << *ids << "\t f id : " << first_id << std::endl;
 	if (first_id >= MAX_ROW_ID) {
 		// update is in transaction-local storage: push update into local storage
 		auto &local_storage = LocalStorage::Get(context, db);
@@ -1239,6 +1249,7 @@ void DataTable::Checkpoint(TableDataWriter &writer) {
 	TableStatistics global_stats;
 	row_groups->CopyStats(global_stats);
 
+	// 针对物理表的数据进行checkpoint
 	row_groups->Checkpoint(writer, global_stats);
 
 	// The rowgroup payload data has been written. Now write:

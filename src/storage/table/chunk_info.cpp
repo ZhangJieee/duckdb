@@ -1,11 +1,14 @@
 #include "duckdb/storage/table/chunk_info.hpp"
 #include "duckdb/transaction/transaction.hpp"
 #include "duckdb/common/serializer.hpp"
+#include <iostream>
 
 namespace duckdb {
 
 struct TransactionVersionOperator {
 	static bool UseInsertedVersion(transaction_t start_time, transaction_t transaction_id, transaction_t id) {
+		// id < start_time表示已经committed
+		// id == transaction_id表示本事务写入的数据
 		return id < start_time || id == transaction_id;
 	}
 
@@ -112,8 +115,13 @@ ChunkVectorInfo::ChunkVectorInfo(idx_t start)
 template <class OP>
 idx_t ChunkVectorInfo::TemplatedGetSelVector(transaction_t start_time, transaction_t transaction_id,
                                              SelectionVector &sel_vector, idx_t max_count) {
+	std::cout << "same_inserted_id : " << same_inserted_id << std::endl;
+	std::cout << "any_deleted : " << any_deleted << std::endl;
 	idx_t count = 0;
 	if (same_inserted_id && !any_deleted) {
+		std::cout << "start_time : " << start_time << std::endl;
+		std::cout << "transaction_id : " << transaction_id << std::endl;
+		std::cout << "insert_id : " << insert_id << std::endl;
 		// all tuples have the same inserted id: and no tuples were deleted
 		if (OP::UseInsertedVersion(start_time, transaction_id, insert_id)) {
 			return max_count;

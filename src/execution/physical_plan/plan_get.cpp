@@ -6,6 +6,7 @@
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -30,6 +31,7 @@ unique_ptr<TableFilterSet> CreateTableFilterSet(TableFilterSet &table_filters, v
 }
 
 unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalGet &op) {
+	std::cout << "PhysicalPlanGenerator::CreatePlan : Logical Get" << op.ToString() << std::endl;
 	if (!op.children.empty()) {
 		// this is for table producing functions that consume subquery results
 		D_ASSERT(op.children.size() == 1);
@@ -42,15 +44,19 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalGet &op) {
 		throw InternalException("LogicalGet::project_input can only be set for table-in-out functions");
 	}
 
+	std::cout << "logical get -> pyhsical operator  : op.table_filters.filters.empty()" << op.table_filters.filters.empty() << std::endl;
 	unique_ptr<TableFilterSet> table_filters;
 	if (!op.table_filters.filters.empty()) {
 		table_filters = CreateTableFilterSet(op.table_filters, op.column_ids);
 	}
 
+	// TODO
+	std::cout << "logical get -> pyhsical operator . function.dependency : " << !!op.function.dependency << std::endl;
 	if (op.function.dependency) {
 		op.function.dependency(dependencies, op.bind_data.get());
 	}
 	// create the table scan node
+	std::cout << "logical get -> pyhsical operator . function.projection_pushdown : " << !!op.function.projection_pushdown << std::endl;
 	if (!op.function.projection_pushdown) {
 		// function does not support projection pushdown
 		auto node = make_uniq<PhysicalTableScan>(op.returned_types, op.function, std::move(op.bind_data),

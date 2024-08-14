@@ -134,6 +134,7 @@ void PhysicalInsert::ResolveDefaults(const TableCatalogEntry &table, DataChunk &
 	result.Reset();
 	result.SetCardinality(chunk);
 
+	std::cout << "PhysicalInsert::ResolveDefaults (!column_index_map.empty()) : " << (!column_index_map.empty()) << std::endl;
 	if (!column_index_map.empty()) {
 		// columns specified by the user, use column_index_map
 		for (auto &col : table.GetColumns().Physical()) {
@@ -481,6 +482,7 @@ void PhysicalInsert::GetData(ExecutionContext &context, DataChunk &chunk, Global
 	if (state.finished) {
 		return;
 	}
+	std::cout << "PhysicalInsert::GetData return_chunk : " << !!return_chunk << std::endl;
 	if (!return_chunk) {
 		chunk.SetCardinality(1);
 		chunk.SetValue(0, 0, Value::BIGINT(insert_gstate.insert_count));

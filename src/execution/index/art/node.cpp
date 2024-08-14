@@ -183,6 +183,7 @@ optional_ptr<Node> Node::GetChild(ART &art, const uint8_t byte) const {
 		throw InternalException("Invalid node type for GetChild.");
 	}
 
+	// 前面已经获取到child的磁盘位置，这里将其load到内存
 	// unswizzle the ART node before returning it
 	if (child && child->IsSwizzled()) {
 		child->Deserialize(art);
@@ -257,10 +258,12 @@ void Node::Deserialize(ART &art) {
 
 	MetaBlockReader reader(art.table_io_manager.GetIndexBlockManager(), buffer_id);
 	reader.offset = offset;
+	// 获取node type
 	type = reader.Read<uint8_t>();
 	swizzle_flag = 0;
 
 	auto type = DecodeARTNodeType();
+	// 根据node type分配内存空间,并修改block id offset指向内存空间地址
 	SetPtr(Node::GetAllocator(art, type).New());
 
 	switch (type) {

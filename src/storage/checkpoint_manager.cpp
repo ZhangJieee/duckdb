@@ -31,6 +31,7 @@
 #include "duckdb/storage/table/column_checkpoint_state.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -64,12 +65,16 @@ void SingleFileCheckpointWriter::CreateCheckpoint() {
 
 	auto &block_manager = GetBlockManager();
 
+	// 数据写入文件,这里初始化block writer,并针对写入磁盘的block重新分配block id
 	//! Set up the writers for the checkpoints
 	metadata_writer = make_uniq<MetaBlockWriter>(block_manager);
+
+	// 所有表的block写入都通过这个Writer,统一重新分配block id
 	table_metadata_writer = make_uniq<MetaBlockWriter>(block_manager);
 
 	// get the id of the first meta block
 	block_id_t meta_block = metadata_writer->GetBlockPointer().block_id;
+	std::cout << "CreateCheckpoint first block id : " << meta_block << std::endl;
 
 	vector<reference<SchemaCatalogEntry>> schemas;
 	// we scan the set of committed schemas

@@ -1,11 +1,13 @@
 #include "duckdb/parser/statement/insert_statement.hpp"
 #include "duckdb/parser/tableref/expressionlistref.hpp"
 #include "duckdb/parser/transformer.hpp"
+#include <iostream>
 
 namespace duckdb {
 
 unique_ptr<TableRef> Transformer::TransformValuesList(duckdb_libpgquery::PGList *list) {
 	auto result = make_uniq<ExpressionListRef>();
+	std::cout << "Transformer::TransformValuesList list length : " << list->length << std::endl;
 	for (auto value_list = list->head; value_list != nullptr; value_list = value_list->next) {
 		auto target = (duckdb_libpgquery::PGList *)(value_list->data.ptr_value);
 
@@ -32,6 +34,7 @@ unique_ptr<InsertStatement> Transformer::TransformInsert(duckdb_libpgquery::PGNo
 	}
 
 	// first check if there are any columns specified
+	std::cout << "Transformer::TransformInsert stmt->cols : " << !!stmt->cols << std::endl;
 	if (stmt->cols) {
 		for (auto c = stmt->cols->head; c != nullptr; c = lnext(c)) {
 			auto target = (duckdb_libpgquery::PGResTarget *)(c->data.ptr_value);
@@ -40,9 +43,11 @@ unique_ptr<InsertStatement> Transformer::TransformInsert(duckdb_libpgquery::PGNo
 	}
 
 	// Grab and transform the returning columns from the parser.
+	std::cout << "Transformer::TransformInsert stmt->returningList : " << !!stmt->returningList << std::endl;
 	if (stmt->returningList) {
 		Transformer::TransformExpressionList(*(stmt->returningList), result->returning_list);
 	}
+	std::cout << "Transformer::TransformInsert stmt->selectStmt : " << !!stmt->selectStmt << std::endl;
 	if (stmt->selectStmt) {
 		result->select_statement = TransformSelect(stmt->selectStmt, false);
 	} else {
@@ -68,6 +73,7 @@ unique_ptr<InsertStatement> Transformer::TransformInsert(duckdb_libpgquery::PGNo
 		result->table_ref = TransformRangeVar(stmt->relation);
 	}
 	result->catalog = qname.catalog;
+	std::cout << "Transformer::TransformInsert catalog : "<< result->catalog << "\t schema : " << result->schema << "\t table name : " << result->table << std::endl;
 	return result;
 }
 

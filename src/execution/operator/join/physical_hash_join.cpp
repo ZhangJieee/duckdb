@@ -124,6 +124,7 @@ public:
 unique_ptr<JoinHashTable> PhysicalHashJoin::InitializeHashTable(ClientContext &context) const {
 	auto result =
 	    make_uniq<JoinHashTable>(BufferManager::GetBufferManager(context), conditions, build_types, join_type);
+	// 默认HT的最大值为max memory * 0.6
 	result->max_ht_size = double(BufferManager::GetBufferManager(context).GetMaxMemory()) * 0.6;
 	if (!delim_types.empty() && join_type == JoinType::MARK) {
 		// correlated MARK join
@@ -188,9 +189,13 @@ SinkResultType PhysicalHashJoin::Sink(ExecutionContext &context, GlobalSinkState
 	// resolve the join keys for the right chunk
 	lstate.join_keys.Reset();
 	lstate.build_executor.Execute(input, lstate.join_keys);
+	std::cout << "join keys : " << lstate.join_keys.ToString() << std::endl;
 
 	// build the HT
+	// 在local state 上构建hash table
 	auto &ht = *lstate.hash_table;
+	std::cout << "right_projection_map.empty() : " << right_projection_map.empty() << std::endl;
+	std::cout << "build_types.empty() : " << build_types.empty() << std::endl;
 	if (!right_projection_map.empty()) {
 		// there is a projection map: fill the build chunk with the projected columns
 		lstate.build_chunk.Reset();
@@ -211,6 +216,7 @@ SinkResultType PhysicalHashJoin::Sink(ExecutionContext &context, GlobalSinkState
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
+// locked,拷贝local state 上的hash table 到 global state
 void PhysicalHashJoin::Combine(ExecutionContext &context, GlobalSinkState &gstate_p, LocalSinkState &lstate_p) const {
 	auto &gstate = gstate_p.Cast<HashJoinGlobalSinkState>();
 	auto &lstate = lstate_p.Cast<HashJoinLocalSinkState>();
@@ -258,7 +264,7 @@ public:
 	HashJoinGlobalSinkState &sink;
 
 public:
-	void Schedule() override {
+	void Schedule() override { // 启动核数相同的task来进行 hash table 的 merge
 		auto &context = pipeline->GetClientContext();
 
 		vector<unique_ptr<Task>> finalize_tasks;
@@ -367,6 +373,7 @@ SinkFinalizeType PhysicalHashJoin::Finalize(Pipeline &pipeline, Event &event, Cl
 	auto &sink = gstate.Cast<HashJoinGlobalSinkState>();
 	auto &ht = *sink.hash_table;
 
+	// 确认内存中是否可以放一个Global HT,若不足则需要不断load data 和 parallel probe
 	sink.external = ht.RequiresExternalJoin(context.config, sink.local_hash_tables);
 	if (sink.external) {
 		sink.perfect_join_executor.reset();
@@ -474,6 +481,7 @@ OperatorResultType PhysicalHashJoin::ExecuteInternal(ExecutionContext &context, 
 		return OperatorResultType::FINISHED;
 	}
 
+	std::cout << "sink.perfect_join_executor : " << !!sink.perfect_join_executor << std::endl;
 	if (sink.perfect_join_executor) {
 		D_ASSERT(!sink.external);
 		return sink.perfect_join_executor->ProbePerfectHashTable(context, input, chunk, *state.perfect_hash_join_state);
@@ -498,6 +506,8 @@ OperatorResultType PhysicalHashJoin::ExecuteInternal(ExecutionContext &context, 
 	// resolve the join keys for the left chunk
 	state.join_keys.Reset();
 	state.probe_executor.Execute(input, state.join_keys);
+
+	std::cout << "Probe join keys " << state.join_keys.ToString() << std::endl;
 
 	// perform the actual probe
 	if (sink.external) {
@@ -628,6 +638,7 @@ void HashJoinGlobalSourceState::Initialize(HashJoinGlobalSinkState &sink) {
 		return;
 	}
 
+	// 这里将每个thread内部的local probe spill 合并到 global probe spill
 	// Finalize the probe spill
 	if (sink.probe_spill) {
 		sink.probe_spill->Finalize();
@@ -643,6 +654,7 @@ void HashJoinGlobalSourceState::TryPrepareNextStage(HashJoinGlobalSinkState &sin
 		if (build_chunk_done == build_chunk_count) {
 			sink.hash_table->GetDataCollection().VerifyEverythingPinned();
 			sink.hash_table->finalized = true;
+			// 构建完成后,开始并行PROBE
 			PrepareProbe(sink);
 		}
 		break;
@@ -669,6 +681,7 @@ void HashJoinGlobalSourceState::PrepareBuild(HashJoinGlobalSinkState &sink) {
 	D_ASSERT(global_stage != HashJoinSourceStage::BUILD);
 	auto &ht = *sink.hash_table;
 
+	// 这里尝试获取下一个block collection
 	// Try to put the next partitions in the block collection of the HT
 	if (!sink.external || !ht.PrepareExternalFinalize()) {
 		global_stage = HashJoinSourceStage::DONE;
@@ -694,6 +707,7 @@ void HashJoinGlobalSourceState::PrepareBuild(HashJoinGlobalSinkState &sink) {
 }
 
 void HashJoinGlobalSourceState::PrepareProbe(HashJoinGlobalSinkState &sink) {
+	// 获取下一个partition的probe data
 	sink.probe_spill->PrepareNextProbe();
 	const auto &consumer = *sink.probe_spill->consumer;
 
@@ -729,6 +743,7 @@ bool HashJoinGlobalSourceState::AssignTask(HashJoinGlobalSinkState &sink, HashJo
 	switch (global_stage.load()) {
 	case HashJoinSourceStage::BUILD:
 		if (build_chunk_idx != build_chunk_count) {
+			// 需要load 磁盘数据构建 HT,这里标记local stage = BUILD
 			lstate.local_stage = global_stage;
 			lstate.build_chunk_idx_from = build_chunk_idx;
 			build_chunk_idx = MinValue<idx_t>(build_chunk_count, build_chunk_idx + build_chunks_per_thread);
@@ -737,6 +752,7 @@ bool HashJoinGlobalSourceState::AssignTask(HashJoinGlobalSinkState &sink, HashJo
 		}
 		break;
 	case HashJoinSourceStage::PROBE:
+		// 并行构建完成后开始probe
 		if (sink.probe_spill->consumer && sink.probe_spill->consumer->AssignChunk(lstate.probe_local_scan)) {
 			lstate.local_stage = global_stage;
 			lstate.empty_ht_probe_in_progress = false;
@@ -815,9 +831,11 @@ bool HashJoinLocalSourceState::TaskFinished() {
 void HashJoinLocalSourceState::ExternalBuild(HashJoinGlobalSinkState &sink, HashJoinGlobalSourceState &gstate) {
 	D_ASSERT(local_stage == HashJoinSourceStage::BUILD);
 
+	// 从磁盘读取指定区间的chunk并insert to HT
 	auto &ht = *sink.hash_table;
 	ht.Finalize(build_chunk_idx_from, build_chunk_idx_to, true);
 
+	// 标记当前线程处理完成
 	lock_guard<mutex> guard(gstate.lock);
 	gstate.build_chunk_done += build_chunk_idx_to - build_chunk_idx_from;
 }
@@ -880,6 +898,7 @@ void HashJoinLocalSourceState::ExternalScanHT(HashJoinGlobalSinkState &sink, Has
 	}
 }
 
+// 并行扫描 hash table,进行 outer 数据的处理
 void PhysicalHashJoin::GetData(ExecutionContext &context, DataChunk &chunk, GlobalSourceState &gstate_p,
                                LocalSourceState &lstate_p) const {
 	auto &sink = sink_state->Cast<HashJoinGlobalSinkState>();
@@ -895,6 +914,7 @@ void PhysicalHashJoin::GetData(ExecutionContext &context, DataChunk &chunk, Glob
 		gstate.Initialize(sink);
 	}
 
+	// 这里循环构建新HT并并行PROBE,直到probe完新HT
 	// Any call to GetData must produce tuples, otherwise the pipeline executor thinks that we're done
 	// Therefore, we loop until we've produced tuples, or until the operator is actually done
 	while (gstate.global_stage != HashJoinSourceStage::DONE && chunk.size() == 0) {

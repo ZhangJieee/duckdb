@@ -13,6 +13,7 @@
 #include "duckdb/catalog/mapping_value.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/type_catalog_entry.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -109,6 +110,7 @@ bool CatalogSet::CreateEntry(CatalogTransaction transaction, const string &name,
 		// see it yet
 		auto dummy_node = make_uniq<InCatalogEntry>(CatalogType::INVALID, value->ParentCatalog(), name);
 		dummy_node->timestamp = 0;
+		// 每个catalog entry 被创建出来，都会有一个dummy catalog entry作为最古老的catalog entry 版本
 		dummy_node->deleted = true;
 		dummy_node->set = this;
 
@@ -379,6 +381,7 @@ optional_ptr<MappingValue> CatalogSet::GetMapping(CatalogTransaction transaction
 	if (get_latest) {
 		return mapping_value;
 	}
+	// 这里循环访问该catalog entry的历史版本,获取当前事务可见的第一个版本
 	while (mapping_value->child) {
 		if (UseTimestamp(transaction, mapping_value->timestamp)) {
 			break;
@@ -419,6 +422,7 @@ bool CatalogSet::UseTimestamp(CatalogTransaction transaction, transaction_t time
 		// we created this version
 		return true;
 	}
+	// 目标版本的timestamp < transaction.start_time,表示在该事务开始前，目标版本已经committed
 	if (timestamp < transaction.start_time) {
 		// this version was commited before we started the transaction
 		return true;
@@ -498,11 +502,13 @@ optional_ptr<CatalogEntry> CatalogSet::CreateDefaultEntry(CatalogTransaction tra
 		return nullptr;
 	}
 	lock.unlock();
+	std::cout << "CatalogSet::CreateDefaultEntry name : " << name << std::endl;
 	auto entry = defaults->CreateDefaultEntry(*transaction.context, name);
 
 	lock.lock();
 	if (!entry) {
 		// no default entry
+		std::cout << "no default entry" << std::endl;
 		return nullptr;
 	}
 	// there is a default entry! create it

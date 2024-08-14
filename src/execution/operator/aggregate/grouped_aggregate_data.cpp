@@ -19,14 +19,18 @@ void GroupedAggregateData::InitializeGroupby(vector<unique_ptr<Expression>> grou
 	SetGroupingFunctions(grouping_functions);
 
 	filter_count = 0;
+	std::cout << "InitializeGroupby expression : " << expressions.size() << std::endl;
 	for (auto &expr : expressions) {
+		std::cout << "expr : " << expr->ToString() << std::endl;
 		D_ASSERT(expr->expression_class == ExpressionClass::BOUND_AGGREGATE);
 		D_ASSERT(expr->IsAggregate());
 		auto &aggr = expr->Cast<BoundAggregateExpression>();
 		bindings.push_back(&aggr);
 
 		aggregate_return_types.push_back(aggr.return_type);
+		// 遍历聚合函数内部的表达式,例如avg(#2) child = #2
 		for (auto &child : aggr.children) {
+			std::cout << "child expr: " << child->ToString() << std::endl;
 			payload_types.push_back(child->return_type);
 		}
 		if (aggr.filter) {

@@ -44,6 +44,7 @@ Binder::Binder(bool, ClientContext &context, shared_ptr<Binder> parent_p, bool i
 
 BoundStatement Binder::Bind(SQLStatement &statement) {
 	root_statement = &statement;
+	std::cout << "Bind statement.type : " << int(statement.type) << std::endl;
 	switch (statement.type) {
 	case StatementType::SELECT_STATEMENT:
 		return Bind(statement.Cast<SelectStatement>());
@@ -110,6 +111,7 @@ unique_ptr<BoundQueryNode> Binder::BindNode(QueryNode &node) {
 	AddCTEMap(node.cte_map);
 	// now we bind the node
 	unique_ptr<BoundQueryNode> result;
+	std::cout << "BindNode node.type : " << int(node.type) << std::endl;
 	switch (node.type) {
 	case QueryNodeType::SELECT_NODE:
 		result = BindNode(node.Cast<SelectNode>());
@@ -126,6 +128,7 @@ unique_ptr<BoundQueryNode> Binder::BindNode(QueryNode &node) {
 }
 
 BoundStatement Binder::Bind(QueryNode &node) {
+	// 针对SELECT [column ... ] from [table] 做了解析并对每部分生成对应的logical plan
 	auto bound_node = BindNode(node);
 
 	BoundStatement result;
@@ -138,6 +141,7 @@ BoundStatement Binder::Bind(QueryNode &node) {
 }
 
 unique_ptr<LogicalOperator> Binder::CreatePlan(BoundQueryNode &node) {
+	std::cout << "CreatePlan node.type " << int(node.type) << std::endl;
 	switch (node.type) {
 	case QueryNodeType::SELECT_NODE:
 		return CreatePlan(node.Cast<BoundSelectNode>());
@@ -152,6 +156,7 @@ unique_ptr<LogicalOperator> Binder::CreatePlan(BoundQueryNode &node) {
 
 unique_ptr<BoundTableRef> Binder::Bind(TableRef &ref) {
 	unique_ptr<BoundTableRef> result;
+	std::cout << "Bind ref.type : " << int(ref.type) << std::endl;
 	switch (ref.type) {
 	case TableReferenceType::BASE_TABLE:
 		result = Bind(ref.Cast<BaseTableRef>());
@@ -311,6 +316,7 @@ void Binder::AddUsingBindingSet(unique_ptr<UsingColumnSet> set) {
 }
 
 void Binder::MoveCorrelatedExpressions(Binder &other) {
+	std::cout << "Binder correlated col size : " << other.correlated_columns.size() << std::endl;
 	MergeCorrelatedColumns(other.correlated_columns);
 	other.correlated_columns.clear();
 }
@@ -343,6 +349,7 @@ bool Binder::HasMatchingBinding(const string &catalog_name, const string &schema
                                 const string &column_name, string &error_message) {
 	optional_ptr<Binding> binding;
 	D_ASSERT(!lambda_bindings);
+	std::cout << "Binder::HasMatchingBinding macro_binding && table_name == macro_binding->alias : " << !!(macro_binding && table_name == macro_binding->alias) << std::endl;
 	if (macro_binding && table_name == macro_binding->alias) {
 		binding = optional_ptr<Binding>(macro_binding.get());
 	} else {

@@ -13,6 +13,7 @@
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 
 #include <functional>
+#include <iostream>
 
 namespace duckdb {
 
@@ -367,6 +368,7 @@ public:
 	static inline idx_t SelectFlatLoopSwitch(LEFT_TYPE *__restrict ldata, RIGHT_TYPE *__restrict rdata,
 	                                         const SelectionVector *sel, idx_t count, ValidityMask &mask,
 	                                         SelectionVector *true_sel, SelectionVector *false_sel) {
+		std::cout<< "SelectFlatLoopSwitch true_sel : " << !!true_sel << "\t false_sel : " << !false_sel << std::endl;
 		if (true_sel && false_sel) {
 			return SelectFlatLoop<LEFT_TYPE, RIGHT_TYPE, OP, LEFT_CONSTANT, RIGHT_CONSTANT, true, true>(
 			    ldata, rdata, sel, count, mask, true_sel, false_sel);
@@ -498,6 +500,7 @@ public:
 		if (!sel) {
 			sel = FlatVector::IncrementalSelectionVector();
 		}
+		std::cout << "vector type -- left : " << int(left.GetVectorType()) << "\t right : " << int(right.GetVectorType()) << std::endl;
 		if (left.GetVectorType() == VectorType::CONSTANT_VECTOR &&
 		    right.GetVectorType() == VectorType::CONSTANT_VECTOR) {
 			return SelectConstant<LEFT_TYPE, RIGHT_TYPE, OP>(left, right, sel, count, true_sel, false_sel);

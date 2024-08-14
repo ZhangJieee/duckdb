@@ -181,6 +181,7 @@ void RadixPartitionedTupleData::Initialize() {
 
 void RadixPartitionedTupleData::InitializeAppendStateInternal(PartitionedTupleDataAppendState &state,
                                                               TupleDataPinProperties properties) const {
+	// properties是用来定义对于分配的block使用后，具体的处理动作:keep pin,立即unpin,...,具体参考TupleDataPinProperties中的定义
 	// Init pin state per partition
 	const auto num_partitions = RadixPartitioning::NumberOfPartitions(radix_bits);
 	state.partition_pin_states.reserve(num_partitions);

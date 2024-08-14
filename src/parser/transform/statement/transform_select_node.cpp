@@ -45,6 +45,7 @@ unique_ptr<QueryNode> Transformer::TransformSelectInternal(duckdb_libpgquery::PG
 	auto stack_checker = StackCheck();
 
 	unique_ptr<QueryNode> node;
+	std::cout << "Transformer::TransformSelectInternal stmt->op : " << int(stmt->op) << std::endl;
 
 	switch (stmt->op) {
 	case duckdb_libpgquery::PG_SETOP_NONE: {
@@ -80,6 +81,7 @@ unique_ptr<QueryNode> Transformer::TransformSelectInternal(duckdb_libpgquery::PG
 		}
 
 		// do this early so the value lists also have a `FROM`
+		std::cout << "Transformer::TransformSelectInternal stmt->valuesLists : " << !!stmt->valuesLists << std::endl;
 		if (stmt->valuesLists) {
 			// VALUES list, create an ExpressionList
 			D_ASSERT(!stmt->fromClause);

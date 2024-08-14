@@ -12,11 +12,14 @@ namespace duckdb {
 // if it does, we return 0, otherwise we return 1
 // we then use bitshifts to combine these values
 void RadixPartitionedHashTable::SetGroupingValues() {
+	std::cout << "GetGroupingFunctions : " << op.GetGroupingFunctions().size() << std::endl;
 	auto &grouping_functions = op.GetGroupingFunctions();
 	for (auto &grouping : grouping_functions) {
 		int64_t grouping_value = 0;
+		std::cout << "grouping : " << grouping.size() << std::endl;
 		D_ASSERT(grouping.size() < sizeof(int64_t) * 8);
 		for (idx_t i = 0; i < grouping.size(); i++) {
+			std::cout << "grouping val : " << grouping[i] << std::endl;
 			if (grouping_set.find(grouping[i]) == grouping_set.end()) {
 				// we don't group on this value!
 				grouping_value += (int64_t)1 << (grouping.size() - (i + 1));
@@ -29,6 +32,7 @@ void RadixPartitionedHashTable::SetGroupingValues() {
 RadixPartitionedHashTable::RadixPartitionedHashTable(GroupingSet &grouping_set_p, const GroupedAggregateData &op_p)
     : grouping_set(grouping_set_p), op(op_p) {
 
+	// 这里确认分组列是否存在于select list
 	auto groups_count = op.GroupCount();
 	for (idx_t i = 0; i < groups_count; i++) {
 		if (grouping_set.find(i) == grouping_set.end()) {
@@ -43,6 +47,7 @@ RadixPartitionedHashTable::RadixPartitionedHashTable(GroupingSet &grouping_set_p
 		// fake a single group with a constant value for aggregation without groups
 		group_types.emplace_back(LogicalType::TINYINT);
 	}
+	// 记录分组列类型
 	for (auto &entry : grouping_set) {
 		D_ASSERT(entry < op.group_types.size());
 		group_types.push_back(op.group_types[entry]);
@@ -138,6 +143,7 @@ void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState 
 	D_ASSERT(!gstate.is_finalized);
 
 	DataChunk &group_chunk = llstate.group_chunk;
+	// 这里获取的是分组列,并填充到group_chunk
 	PopulateGroupChunk(group_chunk, groups_input);
 
 	// if we have non-combinable aggregates (e.g. string_agg) we cannot keep parallel hash
@@ -162,14 +168,18 @@ void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState 
 		llstate.is_empty = false;
 	}
 
+	// 初始化local HT
 	if (!llstate.ht) {
 		llstate.ht =
 		    make_uniq<PartitionableHashTable>(context.client, Allocator::Get(context.client), gstate.partition_info,
 		                                      group_types, op.payload_types, op.bindings);
 	}
 
+	// 这里会返回最终的新增的Group个数
+	// insert into HT(Group By cols(key), Aggregate cols(value))
 	llstate.total_groups += llstate.ht->AddChunk(group_chunk, payload_input,
 	                                             gstate.partitioned && gstate.partition_info.n_partitions > 1, filter);
+	// 当本地的HT中数据量超过limit,意味着HT需要分区,后续会并行处理各区HT
 	if (llstate.total_groups >= radix_limit) {
 		gstate.partitioned = true;
 	}
@@ -204,6 +214,7 @@ void RadixPartitionedHashTable::Combine(ExecutionContext &context, GlobalSinkSta
 	if (!llstate.is_empty) {
 		gstate.is_empty = false;
 	}
+	// 将local HT push 到 global HT list
 	// at this point we just collect them the PhysicalHashAggregateFinalizeTask (below) will merge them in parallel
 	gstate.intermediate_hts.push_back(std::move(llstate.ht));
 }
@@ -221,6 +232,8 @@ bool RadixPartitionedHashTable::Finalize(ClientContext &context, GlobalSinkState
 		return false;
 	}
 
+	// 确认thread local HT是否做了数据分区,如果有一个thread做了分区则针对其他HT全部做分区
+	// 若没有分区,则利用当前thread Combine所有的HT
 	// we can have two cases now, non-partitioned for few groups and radix-partitioned for very many groups.
 	// go through all of the child hts and see if we ever called partition() on any of them
 	// if we did, its the latter case.
@@ -234,6 +247,7 @@ bool RadixPartitionedHashTable::Finalize(ClientContext &context, GlobalSinkState
 
 	auto &allocator = Allocator::Get(context);
 	if (any_partitioned) {
+		// 针对没有做数据分区的local HT强制做分区
 		// if one is partitioned, all have to be
 		// this should mostly have already happened in Combine, but if not we do it here
 		for (auto &pht : gstate.intermediate_hts) {
@@ -241,6 +255,8 @@ bool RadixPartitionedHashTable::Finalize(ClientContext &context, GlobalSinkState
 				pht->Partition();
 			}
 		}
+
+		// 这里初始化分区个数的global HT,后续创建并行任务写入
 		// schedule additional tasks to combine the partial HTs
 		gstate.finalized_hts.resize(gstate.partition_info.n_partitions);
 		for (idx_t r = 0; r < gstate.partition_info.n_partitions; r++) {
@@ -300,6 +316,7 @@ public:
 private:
 	shared_ptr<Event> event;
 	RadixHTGlobalState &state;
+	// 分区号
 	idx_t radix;
 };
 
@@ -318,6 +335,7 @@ void RadixPartitionedHashTable::ScheduleTasks(Executor &executor, const shared_p
 
 bool RadixPartitionedHashTable::ForceSingleHT(GlobalSinkState &state) const {
 	auto &gstate = state.Cast<RadixHTGlobalState>();
+	std::cout << "gstate.partition_info.n_partitions : " << gstate.partition_info.n_partitions << std::endl;
 	return gstate.partition_info.n_partitions < 2;
 }
 
@@ -430,6 +448,8 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 	idx_t elements_found = 0;
 
 	lstate.scan_chunk.Reset();
+
+	// 初始化 Global Source
 	if (!state.initialized) {
 		lock_guard<mutex> l(state.lock);
 		if (!state.initialized) {
@@ -438,6 +458,7 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 			    unique_ptr<TupleDataParallelScanState[]>(new TupleDataParallelScanState[finalized_hts.size()]);
 
 			const auto &layout = gstate.finalized_hts[0]->GetDataCollection().GetLayout();
+			// 初始化列序号
 			vector<column_t> column_ids;
 			column_ids.reserve(layout.ColumnCount() - 1);
 			for (idx_t col_idx = 0; col_idx < layout.ColumnCount() - 1; col_idx++) {
@@ -456,6 +477,7 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 	while (true) {
 		D_ASSERT(state.ht_scan_states);
 		idx_t ht_index;
+		// 获取当前遍历到的HT
 		{
 			lock_guard<mutex> l(state.lock);
 			ht_index = state.ht_index;
@@ -473,12 +495,14 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 		D_ASSERT(lstate.ht);
 
 		auto &global_scan_state = state.ht_scan_states[ht_index];
+		// 多thread并行scanHT
 		elements_found = lstate.ht->Scan(global_scan_state, local_scan_state, lstate.scan_chunk);
 		if (elements_found > 0) {
 			break;
 		}
 		lstate.ht->GetDataCollection().FinalizePinState(local_scan_state.pin_state);
 
+		// 当前分区HT遍历完成,切下一个分区HT
 		// move to the next hash table
 		lock_guard<mutex> l(state.lock);
 		ht_index++;

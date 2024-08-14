@@ -389,6 +389,7 @@ void TupleDataCollection::Scatter(TupleDataChunkState &chunk_state, const DataCh
                                   const SelectionVector &append_sel, const idx_t append_count) const {
 	const auto row_locations = FlatVector::GetData<data_ptr_t>(chunk_state.row_locations);
 
+	// 初始化每行的bit mask
 	// Set the validity mask for each row before inserting data
 	const auto validity_bytes = ValidityBytes::SizeInBytes(layout.ColumnCount());
 	for (idx_t i = 0; i < append_count; i++) {
@@ -404,12 +405,15 @@ void TupleDataCollection::Scatter(TupleDataChunkState &chunk_state, const DataCh
 		}
 	}
 
+	// column_ids是有layout初始化而来,所以会带上hash col
+	// HT中数据会按行存放,这里依次将每列数据写入
 	// Write the data
 	for (const auto &col_idx : chunk_state.column_ids) {
 		Scatter(chunk_state, new_chunk.data[col_idx], col_idx, append_sel, append_count);
 	}
 }
 
+// chunk_state.vector_data[column_id] -> chunk_state.row_locations
 void TupleDataCollection::Scatter(TupleDataChunkState &chunk_state, const Vector &source, const column_t column_id,
                                   const SelectionVector &append_sel, const idx_t append_count) const {
 	const auto &scatter_function = scatter_functions[column_id];
@@ -439,7 +443,9 @@ static void TupleDataTemplatedScatter(const Vector &source, const TupleDataVecto
 	idx_t idx_in_entry;
 	ValidityBytes::GetEntryIndex(col_idx, entry_idx, idx_in_entry);
 
+	// 目标列在一行中的偏移量
 	const auto offset_in_row = layout.GetOffsets()[col_idx];
+	// 这里判断一行中所有列的有效性,无效则写入Null
 	if (validity.AllValid()) {
 		for (idx_t i = 0; i < append_count; i++) {
 			const auto source_idx = source_sel.get_index(append_sel.get_index(i));

@@ -23,6 +23,7 @@ void RowLayout::Initialize(vector<LogicalType> types_p, Aggregates aggregates_p,
 	// Null mask at the front - 1 bit per value.
 	flag_width = ValidityBytes::ValidityMaskSize(types.size());
 	row_width = flag_width;
+	std::cout << "mask width : " << row_width << std::endl;
 
 	// Whether all columns are constant size.
 	for (const auto &type : types) {
@@ -30,6 +31,7 @@ void RowLayout::Initialize(vector<LogicalType> types_p, Aggregates aggregates_p,
 	}
 
 	// This enables pointer swizzling for out-of-core computation.
+	// 如果一行中存在变长列,这里提前分配一个指针空间用于存在变长列的数据地址,注意，一行中的所有变长列的数据连续存放的
 	if (!all_constant) {
 		// When unswizzled the pointer lives here.
 		// When swizzled, the pointer is replaced by an offset.
@@ -46,10 +48,14 @@ void RowLayout::Initialize(vector<LogicalType> types_p, Aggregates aggregates_p,
 		if (TypeIsConstantSize(internal_type) || internal_type == PhysicalType::VARCHAR) {
 			row_width += GetTypeIdSize(type.InternalType());
 		} else {
+			// 针对变长列,每个列大小为一个sizeof(data_ptr_t)
 			// Variable size types use pointers to the actual data (can be swizzled).
 			// Again, we would use sizeof(data_ptr_t), but this is not guaranteed to be equal to sizeof(idx_t).
 			row_width += sizeof(idx_t);
 		}
+
+		std::cout << "type" << int(type.InternalType()) << " width : " << GetTypeIdSize(type.InternalType()) << std::endl;
+		std::cout << "cur width : " << row_width << std::endl;
 	}
 
 	// Alignment padding for aggregates
@@ -65,10 +71,12 @@ void RowLayout::Initialize(vector<LogicalType> types_p, Aggregates aggregates_p,
 	for (auto &aggregate : aggregates) {
 		offsets.push_back(row_width);
 		row_width += aggregate.payload_size;
+		std::cout << "payload_size : " << aggregate.payload_size << std::endl;
 #ifndef DUCKDB_ALLOW_UNDEFINED
 		D_ASSERT(aggregate.payload_size == AlignValue(aggregate.payload_size));
 #endif
 	}
+	std::cout << "row_width : " << row_width << std::endl;
 	aggr_width = row_width - data_width - flag_width;
 
 	// Alignment padding for the next row

@@ -47,6 +47,7 @@ GroupedAggregateHashTable::GroupedAggregateHashTable(ClientContext &context, All
     : BaseAggregateHashTable(context, allocator, aggregate_objects_p, std::move(payload_types_p)),
       entry_type(entry_type), capacity(0), is_finalized(false),
       aggregate_allocator(make_shared<ArenaAllocator>(allocator)) {
+	// 这里多添加了一列类型,hash,意味着HT中会记录hash value,并和Group By cols一起进行比较
 	// Append hash column to the end and initialise the row layout
 	group_types_p.emplace_back(LogicalType::HASH);
 	layout.Initialize(std::move(group_types_p), std::move(aggregate_objects_p));
@@ -54,21 +55,24 @@ GroupedAggregateHashTable::GroupedAggregateHashTable(ClientContext &context, All
 	tuples_per_block = Storage::BLOCK_SIZE / tuple_size;
 
 	// HT layout
+	// 记录Hash type col在行存后的偏移量
 	hash_offset = layout.GetOffsets()[layout.ColumnCount() - 1];
 	data_collection = make_uniq<TupleDataCollection>(buffer_manager, layout);
+	// 这里初始化pin state = keep pinned,即所有的数据常驻于内存
 	data_collection->InitializeAppend(td_pin_state, TupleDataPinProperties::KEEP_EVERYTHING_PINNED);
 
 	hashes_hdl = buffer_manager.Allocate(Storage::BLOCK_SIZE);
 	hashes_hdl_ptr = hashes_hdl.Ptr();
 
+	// 初始化HT容量
 	switch (entry_type) {
 	case HtEntryType::HT_WIDTH_64: {
-		hash_prefix_shift = (HASH_WIDTH - sizeof(aggr_ht_entry_64::salt)) * 8;
+		hash_prefix_shift = (HASH_WIDTH - sizeof(aggr_ht_entry_64::salt)) * 8; // 48
 		Resize<aggr_ht_entry_64>(initial_capacity);
 		break;
 	}
 	case HtEntryType::HT_WIDTH_32: {
-		hash_prefix_shift = (HASH_WIDTH - sizeof(aggr_ht_entry_32::salt)) * 8;
+		hash_prefix_shift = (HASH_WIDTH - sizeof(aggr_ht_entry_32::salt)) * 8; // 56
 		Resize<aggr_ht_entry_32>(initial_capacity);
 		break;
 	}
@@ -76,6 +80,7 @@ GroupedAggregateHashTable::GroupedAggregateHashTable(ClientContext &context, All
 		throw InternalException("Unknown HT entry width");
 	}
 
+	// 这里添加针对Group By cols和上面新添加的Hash type col的谓词处理 =
 	predicates.resize(layout.ColumnCount() - 1, ExpressionType::COMPARE_EQUAL);
 }
 
@@ -136,6 +141,7 @@ idx_t GroupedAggregateHashTable::GetMaxCapacity(HtEntryType entry_type, idx_t tu
 	idx_t max_pages;
 	idx_t max_tuples;
 
+	// 这里通过HT ENTRY所能支持的最大值确认可以存放数据量的最大值
 	switch (entry_type) {
 	case HtEntryType::HT_WIDTH_32:
 		max_pages = NumericLimits<uint8_t>::Maximum();
@@ -180,6 +186,7 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 	}
 	capacity = size;
 
+	// hash 取模用
 	bitmask = capacity - 1;
 	const auto byte_size = capacity * sizeof(ENTRY);
 	if (byte_size > (idx_t)Storage::BLOCK_SIZE) {
@@ -210,6 +217,7 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 				D_ASSERT(row_location >= block_pointer && row_location < block_end);
 				D_ASSERT((row_location - block_pointer) % tuple_size == 0);
 
+				// 获取本行Group的hash值
 				const auto hash = Load<hash_t>(row_location + hash_offset);
 				D_ASSERT((hash & bitmask) == (hash % capacity));
 				D_ASSERT(hash >> hash_prefix_shift <= NumericLimits<uint16_t>::Maximum());
@@ -270,6 +278,7 @@ idx_t GroupedAggregateHashTable::AddChunk(AggregateHTAppendState &state, DataChu
 	}
 #endif
 
+	// 数据写入HT并返回最终插入的group数量
 	auto new_group_count = FindOrCreateGroups(state, groups, group_hashes, state.addresses, state.new_groups);
 	VectorOperations::AddInPlace(state.addresses, layout.GetAggrOffset(), payload.size());
 
@@ -278,6 +287,7 @@ idx_t GroupedAggregateHashTable::AddChunk(AggregateHTAppendState &state, DataChu
 	idx_t filter_idx = 0;
 	idx_t payload_idx = 0;
 	RowOperationsState row_state(aggregate_allocator->GetAllocator());
+	// 根据聚合的个数,逐个处理
 	for (idx_t i = 0; i < aggregates.size(); i++) {
 		auto &aggr = aggregates[i];
 		if (filter_idx >= filter.size() || i < filter[filter_idx]) {
@@ -292,6 +302,7 @@ idx_t GroupedAggregateHashTable::AddChunk(AggregateHTAppendState &state, DataChu
 			RowOperations::UpdateFilteredStates(row_state, filter_set.GetFilterData(i), aggr, state.addresses, payload,
 			                                    payload_idx);
 		} else {
+			// 根据实际的聚合函数动作,聚合指定列数据
 			RowOperations::UpdateStates(row_state, aggr, state.addresses, payload, payload_idx, payload.size());
 		}
 
@@ -346,6 +357,7 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(AggregateHTAppendSta
 		throw InternalException("Hash table capacity reached");
 	}
 
+	// HT溢出或当前的数据量大于HT当前容量 * 2/3,需要HT扩容
 	// Resize at 50% capacity, also need to fit the entire vector
 	if (capacity - Count() <= groups.size() || Count() > ResizeThreshold()) {
 		Verify();
@@ -366,17 +378,21 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(AggregateHTAppendSta
 	for (idx_t r = 0; r < groups.size(); r++) {
 		auto element = group_hashes[r];
 		D_ASSERT((element & bitmask) == (element % capacity));
+		// 这里将每行中的group col进行取模获取到HT的索引,预先计算hash salt(8 bit)
 		ht_offsets_ptr[r] = element & bitmask;
 		hash_salts_ptr[r] = element >> hash_prefix_shift;
 	}
 	// we start out with all entries [0, 1, 2, ..., groups.size()]
 	const SelectionVector *sel_vector = FlatVector::IncrementalSelectionVector();
 
+	// 初始化state group chunk,注意这里通过layout参数,即实际列个数会多一个,用于存放hash
 	// Make a chunk that references the groups and the hashes and convert to unified format
 	if (state.group_chunk.ColumnCount() == 0) {
 		state.group_chunk.InitializeEmpty(layout.GetTypes());
 	}
 	D_ASSERT(state.group_chunk.ColumnCount() == layout.GetTypes().size());
+
+	// group数据填充到state.group_chunk
 	for (idx_t grp_idx = 0; grp_idx < groups.ColumnCount(); grp_idx++) {
 		state.group_chunk.data[grp_idx].Reference(groups.data[grp_idx]);
 	}
@@ -404,27 +420,34 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(AggregateHTAppendSta
 		// For each remaining entry, figure out whether or not it belongs to a full or empty group
 		for (idx_t i = 0; i < remaining_entries; i++) {
 			const idx_t index = sel_vector->get_index(i);
+			// 这里根据每行group col生成的hash映射到HT的索引位置,获取 HT ENTRY
 			auto &ht_entry = *(((ENTRY *)this->hashes_hdl_ptr) + ht_offsets_ptr[index]);
+			// 表示一个新空间
 			if (ht_entry.page_nr == 0) { // Cell is unoccupied (we use page number 0 as a "unused marker")
 				D_ASSERT(group_hashes[index] >> hash_prefix_shift <= NumericLimits<uint16_t>::Maximum());
 				D_ASSERT(payload_hds_ptrs.size() < NumericLimits<uint32_t>::Maximum());
 
 				// Set page nr to 1 for now to mark it as occupied (will be corrected later) and set the salt
 				ht_entry.page_nr = 1;
+				// 记录 hash salt(8bit),注意这里实际在HT ENTRY中保存了对group col的hash值,后续新数据判断无需在计算hash
 				ht_entry.salt = group_hashes[index] >> hash_prefix_shift;
 
 				// Update selection lists for outer loops
 				state.empty_vector.set_index(new_entry_count++, index);
 				new_groups_out.set_index(new_group_count++, index);
 			} else { // Cell is occupied: Compare salts
+				// 如果当前HT ENTRY 已经有Group占用,则比较hash salt
 				if (ht_entry.salt == hash_salts_ptr[index]) {
+					// 表示hash salt相同,需要进一步比较group col
 					state.group_compare_vector.set_index(need_compare_count++, index);
 				} else {
+					// 表示hash salt不相同,即需要线性探测新的bucket
 					state.no_match_vector.set_index(no_match_count++, index);
 				}
 			}
 		}
 
+		// 有新tuple插入
 		if (new_entry_count != 0) {
 			// Append everything that belongs to an empty group
 			data_collection->AppendUnified(td_pin_state, state.chunk_state, state.group_chunk, state.empty_vector,
@@ -438,10 +461,12 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(AggregateHTAppendSta
 			auto block_pointer = payload_hds_ptrs[block_id];
 			auto block_end = block_pointer + tuples_per_block * tuple_size;
 
+			// 这里将追加后的数据更新到hash block中
 			// Set the page nrs/offsets in the 1st part of the HT now that the data has been appended
 			const auto row_locations = FlatVector::GetData<data_ptr_t>(state.chunk_state.row_locations);
 			for (idx_t new_entry_idx = 0; new_entry_idx < new_entry_count; new_entry_idx++) {
 				const auto &row_location = row_locations[new_entry_idx];
+				// 当前block遍历完,切下一个block
 				if (row_location > block_end || row_location < block_pointer) {
 					block_id++;
 					D_ASSERT(block_id < payload_hds_ptrs.size());
@@ -452,28 +477,34 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(AggregateHTAppendSta
 				D_ASSERT((row_location - block_pointer) % tuple_size == 0);
 				const auto index = state.empty_vector.get_index(new_entry_idx);
 				auto &ht_entry = *(((ENTRY *)this->hashes_hdl_ptr) + ht_offsets_ptr[index]);
+				// 这里更新数据在实际blcok中的位置信息
 				ht_entry.page_nr = block_id + 1;
 				ht_entry.page_offset = (row_location - block_pointer) / tuple_size;
 				addresses[index] = row_location;
 			}
 		}
 
+		// 需要进一步比较group col
 		if (need_compare_count != 0) {
 			// Get the pointers to the rows that need to be compared
 			for (idx_t need_compare_idx = 0; need_compare_idx < need_compare_count; need_compare_idx++) {
 				const auto index = state.group_compare_vector.get_index(need_compare_idx);
+				// 这里取出目标Group所在的Block位置
 				const auto &ht_entry = *(((ENTRY *)this->hashes_hdl_ptr) + ht_offsets_ptr[index]);
 				auto page_ptr = payload_hds_ptrs[ht_entry.page_nr - 1];
 				auto page_offset = ht_entry.page_offset * tuple_size;
+				// 记录欲比较的目标行所在的block中的地址
 				addresses[index] = page_ptr + page_offset;
 			}
 
+			// 这里会进行
 			// Perform group comparisons
 			RowOperations::Match(state.group_chunk, state.group_data.get(), layout, addresses_v, predicates,
 			                     state.group_compare_vector, need_compare_count, &state.no_match_vector,
 			                     no_match_count);
 		}
 
+		// 线性探测,检测下一行
 		// Linear probing: each of the entries that do not match move to the next entry in the HT
 		for (idx_t i = 0; i < no_match_count; i++) {
 			idx_t index = state.no_match_vector.get_index(i);
@@ -490,6 +521,7 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(AggregateHTAppendSta
 }
 
 void GroupedAggregateHashTable::UpdateBlockPointers() {
+	// 这里根据记录的pinned block来更新block HT表,指向最新的数据
 	for (const auto &id_and_handle : td_pin_state.row_handles) {
 		const auto &id = id_and_handle.first;
 		const auto &handle = id_and_handle.second;
@@ -580,6 +612,7 @@ void GroupedAggregateHashTable::Combine(GroupedAggregateHashTable &other) {
 		return;
 	}
 
+	// Scan other并进行combine
 	FlushMoveState state(*other.data_collection);
 	RowOperationsState row_state(aggregate_allocator->GetAllocator());
 	while (state.Scan()) {
@@ -629,9 +662,11 @@ void GroupedAggregateHashTable::InitializeFirstPart() {
 
 idx_t GroupedAggregateHashTable::Scan(TupleDataParallelScanState &gstate, TupleDataLocalScanState &lstate,
                                       DataChunk &result) {
+	// 这里每次从Global HT中获取当前HT中的一个chunk
 	data_collection->Scan(gstate, lstate, result);
 
 	RowOperationsState row_state(aggregate_allocator->GetAllocator());
+	// 这里获取聚合列索引,调用Finalize调整最终的结果,以avg为例,则取均值
 	const auto group_cols = layout.ColumnCount() - 1;
 	RowOperations::FinalizeStates(row_state, layout, lstate.chunk_state.row_locations, result, group_cols);
 

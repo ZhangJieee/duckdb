@@ -223,7 +223,9 @@ void DBConfig::SetDefaultMaxMemory() {
 
 idx_t CGroupBandwidthQuota(idx_t physical_cores, FileSystem &fs) {
 	static constexpr const char *CPU_MAX = "/sys/fs/cgroup/cpu.max";
+	// Cgroup可以使用的CPU带宽大小
 	static constexpr const char *CFS_QUOTA = "/sys/fs/cgroup/cpu/cpu.cfs_quota_us";
+	// 单个CPU可以使用的带宽大小
 	static constexpr const char *CFS_PERIOD = "/sys/fs/cgroup/cpu/cpu.cfs_period_us";
 
 	int64_t quota, period;

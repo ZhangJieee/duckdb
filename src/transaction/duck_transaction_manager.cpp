@@ -12,6 +12,7 @@
 #include "duckdb/main/connection_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/database_manager.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -190,7 +191,9 @@ string DuckTransactionManager::CommitTransaction(ClientContext &context, Transac
 	CheckpointLock checkpoint_lock(*this);
 	// check if we can checkpoint
 	bool checkpoint = thread_is_checkpointing ? false : CanCheckpoint(transaction);
+	std::cout << "DuckTransactionManager::CommitTransaction checkpoint : " << checkpoint << std::endl;
 	if (checkpoint) {
+		std::cout << "transaction->AutomaticCheckpoint(db) : " << transaction->AutomaticCheckpoint(db) << std::endl;
 		if (transaction->AutomaticCheckpoint(db)) {
 			checkpoint_lock.Lock();
 			// we might be able to checkpoint: lock all clients

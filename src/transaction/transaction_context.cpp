@@ -30,8 +30,9 @@ void TransactionContext::BeginTransaction() {
 	current_transaction = make_uniq<MetaTransaction>(context, start_timestamp, catalog_version);
 
 	auto &config = DBConfig::GetConfig(context);
+	std::cout << "TransactionContext::BeginTransaction config.options.immediate_transaction_mode : " << config.options.immediate_transaction_mode << std::endl;
 	if (config.options.immediate_transaction_mode) {
-		// if immediate transaction mode is enabled then start all transactions immediately
+		// if immediate transaction mode is enabled then start all transactions immediately, register to meta transcation map <attachedDB, transcation>
 		auto databases = DatabaseManager::Get(context).GetDatabases(context);
 		for (auto db : databases) {
 			current_transaction->GetTransaction(db.get());

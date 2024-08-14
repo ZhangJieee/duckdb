@@ -2,6 +2,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -24,6 +25,7 @@ Transaction &Transaction::Get(ClientContext &context, AttachedDatabase &db) {
 }
 
 Transaction &MetaTransaction::GetTransaction(AttachedDatabase &db) {
+	std::cout << "GetTransaction db : " << db.GetName() << std::endl;
 	auto entry = transactions.find(&db);
 	if (entry == transactions.end()) {
 		auto new_transaction = db.GetTransactionManager().StartTransaction(context);
@@ -32,6 +34,7 @@ Transaction &MetaTransaction::GetTransaction(AttachedDatabase &db) {
 		}
 		new_transaction->active_query = active_query;
 		all_transactions.push_back(&db);
+		std::cout << "MetaTransaction::GetTransaction push back DB " << std::endl;
 		transactions[&db] = new_transaction;
 		return *new_transaction;
 	} else {
@@ -46,6 +49,7 @@ Transaction &Transaction::Get(ClientContext &context, Catalog &catalog) {
 
 string MetaTransaction::Commit() {
 	string error;
+	std::cout << "MetaTransaction::Commit transaction size :" << all_transactions.size() << std::endl;
 	// commit transactions in reverse order
 	for (idx_t i = all_transactions.size(); i > 0; i--) {
 		auto db = all_transactions[i - 1];

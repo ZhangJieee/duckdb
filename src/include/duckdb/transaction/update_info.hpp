@@ -45,6 +45,7 @@ struct UpdateInfo {
 	static void UpdatesForTransaction(UpdateInfo *current, transaction_t start_time, transaction_t transaction_id,
 	                                  T &&callback) {
 		while (current) {
+			// 这里version_number > start_time即current要么在当前事务后提交的，要么还未提交
 			if (current->version_number > start_time && current->version_number != transaction_id) {
 				// these tuples were either committed AFTER this transaction started or are not committed yet, use
 				// tuples stored in this version

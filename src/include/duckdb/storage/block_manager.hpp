@@ -65,6 +65,7 @@ public:
 	//! Returns the number of free blocks
 	virtual idx_t FreeBlocks() = 0;
 
+	// 这里将磁盘上的block注册到这里,表示通过BlockManager来管理
 	//! Register a block with the given block id in the base file
 	shared_ptr<BlockHandle> RegisterBlock(block_id_t block_id, bool is_meta_block = false);
 	//! Clear cached handles for meta blocks

@@ -6,13 +6,18 @@ namespace duckdb {
 
 PipelineExecutor::PipelineExecutor(ClientContext &context_p, Pipeline &pipeline_p)
     : pipeline(pipeline_p), thread(context_p), context(context_p, thread, &pipeline_p) {
+    // 确认global source state存在
 	D_ASSERT(pipeline.source_state);
+
+	// 初始化local source state
 	local_source_state = pipeline.source->GetLocalSourceState(context, *pipeline.source_state);
 	if (pipeline.sink) {
+		// 初始化 local sink state
 		local_sink_state = pipeline.sink->GetLocalSinkState(context);
 		requires_batch_index = pipeline.sink->RequiresBatchIndex() && pipeline.source->SupportsBatchIndex();
 	}
 
+	std::cout << "pipeline operator size : " << pipeline.operators.size() << std::endl;
 	intermediate_chunks.reserve(pipeline.operators.size());
 	intermediate_states.reserve(pipeline.operators.size());
 	for (idx_t i = 0; i < pipeline.operators.size(); i++) {
@@ -32,6 +37,8 @@ PipelineExecutor::PipelineExecutor(ClientContext &context_p, Pipeline &pipeline_
 			FinishProcessing();
 		}
 	}
+
+	// 初始化data chunk
 	InitializeChunk(final_chunk);
 }
 
@@ -44,12 +51,16 @@ bool PipelineExecutor::Execute(idx_t max_chunks) {
 			break;
 		}
 		source_chunk.Reset();
+		// 通过pipeline的source获取实际数据
 		FetchFromSource(source_chunk);
+		std::cout << "PipelineExecutor::Execute fetch from source : " << source_chunk.size() << std::endl;
 		if (source_chunk.size() == 0) {
 			exhausted_source = true;
 			break;
 		}
+		std::cout << "ExecutePushInternal start handle" << std::endl;
 		auto result = ExecutePushInternal(source_chunk);
+		std::cout << "ExecutePushInternal : " << int(result) << std::endl;
 		if (result == OperatorResultType::FINISHED) {
 			D_ASSERT(IsFinished());
 			break;
@@ -96,11 +107,14 @@ OperatorResultType PipelineExecutor::ExecutePushInternal(DataChunk &input, idx_t
 		} else {
 			result = OperatorResultType::NEED_MORE_INPUT;
 		}
+
+		// source -> sink
 		auto &sink_chunk = final_chunk;
 		if (sink_chunk.size() > 0) {
 			StartOperator(*pipeline.sink);
 			D_ASSERT(pipeline.sink);
 			D_ASSERT(pipeline.sink->sink_state);
+			std::cout << "pipeline sink type : " << int(pipeline.sink->type) << std::endl;
 			auto sink_result = pipeline.sink->Sink(context, *pipeline.sink->sink_state, *local_sink_state, sink_chunk);
 			EndOperator(*pipeline.sink, nullptr);
 			if (sink_result == SinkResultType::FINISHED) {
@@ -309,6 +323,7 @@ OperatorResultType PipelineExecutor::Execute(DataChunk &input, DataChunk &result
 
 void PipelineExecutor::FetchFromSource(DataChunk &result) {
 	StartOperator(*pipeline.source);
+	// 这里执行 physical operator获取column data
 	pipeline.source->GetData(context, result, *pipeline.source_state, *local_source_state);
 	if (result.size() != 0 && requires_batch_index) {
 		auto next_batch_index =

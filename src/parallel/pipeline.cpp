@@ -13,6 +13,7 @@
 #include "duckdb/parallel/pipeline_executor.hpp"
 #include "duckdb/parallel/task_scheduler.hpp"
 #include "duckdb/parallel/thread_context.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -31,6 +32,7 @@ public:
 public:
 	TaskExecutionResult ExecuteTask(TaskExecutionMode mode) override {
 		if (!pipeline_executor) {
+			std::cout << "ExecuteTask pipeline executor is nil " << std::endl;
 			pipeline_executor = make_uniq<PipelineExecutor>(pipeline.GetClientContext(), pipeline);
 		}
 		if (mode == TaskExecutionMode::PROCESS_PARTIAL) {
@@ -41,6 +43,7 @@ public:
 		} else {
 			pipeline_executor->Execute();
 		}
+		// 这一步则是确认单签task是否全部执行完成，并触发相关依赖task 执行
 		event->FinishTask();
 		pipeline_executor.reset();
 		return TaskExecutionResult::TASK_FINISHED;
@@ -81,6 +84,7 @@ bool Pipeline::ScheduleParallel(shared_ptr<Event> &event) {
 	if (!source->ParallelSource()) {
 		return false;
 	}
+	std::cout << "intermediate operators size : " << operators.size() << std::endl;
 	for (auto &op_ref : operators) {
 		auto &op = op_ref.get();
 		if (!op.ParallelOperator()) {
@@ -93,6 +97,8 @@ bool Pipeline::ScheduleParallel(shared_ptr<Event> &event) {
 			    "Attempting to schedule a pipeline where the sink requires batch index but source does not support it");
 		}
 	}
+
+	// 依赖GlobalSourceState的max thread
 	idx_t max_threads = source_state->MaxThreads();
 	return LaunchScanTasks(event, max_threads);
 }
@@ -129,6 +135,13 @@ bool Pipeline::IsOrderDependent() const {
 void Pipeline::Schedule(shared_ptr<Event> &event) {
 	D_ASSERT(ready);
 	D_ASSERT(sink);
+	// Pipeline调度前,初始化GlobalSource和GlobalSink,实际的并行粒度则是通过GlobalSource来决定
+	// Pipeline向work thread注册Task后,每个thread内部初始化local source和local sink
+	// Pipeline中记录GlobalSource变量,Operator中记录GlobalSink变量
+	// 这里关于GlobalSink没有放在Pipeline中的原因是
+	// Pipeline会记录输入、计算、输出Operator,针对一次Pipeline的执行,最终数据存放到了GlobalSink中
+	// 针对一个多Pipeline的执行,中间的Pipeline输入依赖于上一个Pipeline的输出，可以理解为前一个Pipeline的Sink Operator = 下一个Pipeline的Source Operator，而下一个Pipeline的GlobalSource则是通过该Pipeline的Source Operator中的Global Sink来初始化
+	// 则对于中间的Pipeline,实际的输入是通过自己的Source Operator中的GlobalSink进行初始化,并进行后续的处理
 	Reset();
 	if (!ScheduleParallel(event)) {
 		// could not parallelize this pipeline: push a sequential task instead
@@ -143,6 +156,7 @@ bool Pipeline::LaunchScanTasks(shared_ptr<Event> &event, idx_t max_threads) {
 	if (max_threads > active_threads) {
 		max_threads = active_threads;
 	}
+	std::cout << "parallel threads size: " << max_threads << std::endl;
 	if (max_threads <= 1) {
 		// too small to parallelize
 		return false;
@@ -153,6 +167,8 @@ bool Pipeline::LaunchScanTasks(shared_ptr<Event> &event, idx_t max_threads) {
 	for (idx_t i = 0; i < max_threads; i++) {
 		tasks.push_back(make_uniq<PipelineTask>(*this, event));
 	}
+
+	// 入队
 	event->SetTasks(std::move(tasks));
 	return true;
 }

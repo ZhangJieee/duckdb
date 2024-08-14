@@ -2,6 +2,7 @@
 #include "duckdb/function/compression_function.hpp"
 #include "duckdb/function/compression/compression.hpp"
 #include "duckdb/common/pair.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -30,6 +31,7 @@ static optional_ptr<CompressionFunction> FindCompressionFunction(CompressionFunc
                                                                  PhysicalType data_type) {
 	auto &functions = set.functions;
 	auto comp_entry = functions.find(type);
+	std::cout << "FindCompressionFunction find : " << (comp_entry != functions.end()) << std::endl;
 	if (comp_entry != functions.end()) {
 		auto &type_functions = comp_entry->second;
 		auto type_entry = type_functions.find(data_type);

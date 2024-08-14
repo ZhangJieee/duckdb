@@ -82,6 +82,7 @@ void MergeSorter::MergePartition() {
 }
 
 void MergeSorter::GetNextPartition() {
+	// 这里是根据merge pair idx进行分配,所以这里同一个merge idx的会放到一个sorted block中
 	// Create result block
 	state.sorted_blocks_temp[state.pair_idx].push_back(make_uniq<SortedBlock>(buffer_manager, state));
 	result = state.sorted_blocks_temp[state.pair_idx].back().get();
@@ -96,6 +97,8 @@ void MergeSorter::GetNextPartition() {
 	// Compute the work that this thread must do using Merge Path
 	idx_t l_end;
 	idx_t r_end;
+	// block_capacity记录单个SortedBlock中拥有最多行的数量
+	// 如果两个sorted block中的行数超过单次并行的最大行数,这里寻找相交点进行切分
 	if (state.l_start + state.r_start + state.block_capacity < l_count + r_count) {
 		left->sb = state.sorted_blocks[state.pair_idx * 2].get();
 		right->sb = state.sorted_blocks[state.pair_idx * 2 + 1].get();
@@ -111,10 +114,13 @@ void MergeSorter::GetNextPartition() {
 	// Create slices of the data that this thread must merge
 	left->SetIndices(0, 0);
 	right->SetIndices(0, 0);
+	// 这里根据上面计算出来的两个区间,返回一个slice包含这个区间的数据
+	// 获取目标分区的数据，同时reset
 	left_input = left_block.CreateSlice(state.l_start, l_end, left->entry_idx);
 	right_input = right_block.CreateSlice(state.r_start, r_end, right->entry_idx);
 	left->sb = left_input.get();
 	right->sb = right_input.get();
+	// 记录end位置，作为下一个分区的起点
 	state.l_start = l_end;
 	state.r_start = r_end;
 	D_ASSERT(left->Remaining() + right->Remaining() == state.block_capacity || (l_end == l_count && r_end == r_count));
@@ -161,6 +167,12 @@ int MergeSorter::CompareUsingGlobalIndex(SBScanState &l, SBScanState &r, const i
 	return comp_res;
 }
 
+/*
+ * diagonal: 要寻找的分割点
+ * l_idx   : 返回左数组的end index
+ * r_idx   : 返回右数组的end index
+ * */
+
 void MergeSorter::GetIntersection(const idx_t diagonal, idx_t &l_idx, idx_t &r_idx) {
 	const idx_t l_count = left->sb->Count();
 	const idx_t r_count = right->sb->Count();
@@ -187,9 +199,12 @@ void MergeSorter::GetIntersection(const idx_t diagonal, idx_t &l_idx, idx_t &r_i
 	}
 	// LCOV_EXCL_STOP
 	// Determine offsets for the binary search
+	// 这里会优先考虑从left中获取目标长度，如果可以满足，则直接返回；否则需要查找分割点
+	// 注意这里l_offset + r_offset = diagonal,即确认对角线,后续会在对角线上进行二分查找获取分割点
 	const idx_t l_offset = MinValue(l_count, diagonal);
 	const idx_t r_offset = diagonal > l_count ? diagonal - l_count : 0;
 	D_ASSERT(l_offset + r_offset == diagonal);
+	// 确认搜索范围
 	const idx_t search_space = diagonal > MaxValue(l_count, r_count) ? l_count + r_count - diagonal
 	                                                                 : MinValue(diagonal, MinValue(l_count, r_count));
 	// Double binary search
@@ -199,6 +214,7 @@ void MergeSorter::GetIntersection(const idx_t diagonal, idx_t &l_idx, idx_t &r_i
 	int comp_res;
 	while (li <= ri) {
 		middle = (li + ri) / 2;
+		// 注意这里修改l和r的位置，但是满足l_idx + r_idx = diagonal,即在对角线上移动寻找目标点
 		l_idx = l_offset - middle;
 		r_idx = r_offset + middle;
 		if (l_idx == l_count || r_idx == 0) {
@@ -221,8 +237,10 @@ void MergeSorter::GetIntersection(const idx_t diagonal, idx_t &l_idx, idx_t &r_i
 		}
 		comp_res = CompareUsingGlobalIndex(*left, *right, l_idx, r_idx);
 		if (comp_res > 0) {
+			// 左移
 			li = middle + 1;
 		} else {
+			// 右移
 			ri = middle - 1;
 		}
 	}
@@ -230,10 +248,10 @@ void MergeSorter::GetIntersection(const idx_t diagonal, idx_t &l_idx, idx_t &r_i
 	int l_min1_r = CompareUsingGlobalIndex(*left, *right, l_idx - 1, r_idx);
 	if (l_r_min1 > 0 && l_min1_r < 0) {
 		return;
-	} else if (l_r_min1 > 0) {
+	} else if (l_r_min1 > 0) { // 左上都大于,向右上移动
 		l_idx--;
 		r_idx++;
-	} else if (l_min1_r < 0) {
+	} else if (l_min1_r < 0) { // 左上都小于,向左下移动
 		l_idx++;
 		r_idx--;
 	}

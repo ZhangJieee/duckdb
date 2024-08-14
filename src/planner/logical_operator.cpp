@@ -46,6 +46,7 @@ string LogicalOperator::ParamsToString() const {
 void LogicalOperator::ResolveOperatorTypes() {
 
 	types.clear();
+	std::cout << "type : " << int(type) << "\t children size : " << children.size() << std::endl;
 	// first resolve child types
 	for (auto &child : children) {
 		child->ResolveOperatorTypes();

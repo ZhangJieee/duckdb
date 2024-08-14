@@ -126,13 +126,18 @@ unique_ptr<BoundTableRef> Binder::Bind(JoinRef &ref) {
 	auto &right_binder = *result->right_binder;
 
 	result->type = ref.type;
+	// 创建左表的BoundTableRef和LogicalPlan<LogicalGet>
 	result->left = left_binder.Bind(*ref.left);
 	{
 		LateralBinder binder(left_binder, context);
+		// 创建右表的BoundTableRef和LogicalPlan<LogicalGet>
 		result->right = right_binder.Bind(*ref.right);
 		result->correlated_columns = binder.ExtractCorrelatedColumns(right_binder);
+		std::cout << "correlated cols : " << result->correlated_columns.size() << std::endl;
+		std::cout << "join type : " << int(ref.type) << std::endl;
 
 		result->lateral = binder.HasCorrelatedColumns();
+		std::cout << "lateral : " << result->lateral << std::endl;
 		if (result->lateral) {
 			// lateral join: can only be an INNER or LEFT join
 			if (ref.type != JoinType::INNER && ref.type != JoinType::LEFT) {
@@ -143,6 +148,7 @@ unique_ptr<BoundTableRef> Binder::Bind(JoinRef &ref) {
 
 	vector<unique_ptr<ParsedExpression>> extra_conditions;
 	vector<string> extra_using_columns;
+	std::cout << "Bind join type : " << int(ref.ref_type) << std::endl;
 	switch (ref.ref_type) {
 	case JoinRefType::NATURAL: {
 		// natural join, figure out which column names are present in both sides of the join
@@ -270,6 +276,7 @@ unique_ptr<BoundTableRef> Binder::Bind(JoinRef &ref) {
 	bind_context.AddContext(std::move(right_binder.bind_context));
 	MoveCorrelatedExpressions(left_binder);
 	MoveCorrelatedExpressions(right_binder);
+	std::cout << "extra condition " << extra_conditions.size() << std::endl;
 	for (auto &condition : extra_conditions) {
 		if (ref.condition) {
 			ref.condition = make_uniq<ConjunctionExpression>(ExpressionType::CONJUNCTION_AND, std::move(ref.condition),
@@ -278,6 +285,7 @@ unique_ptr<BoundTableRef> Binder::Bind(JoinRef &ref) {
 			ref.condition = std::move(condition);
 		}
 	}
+	// 处理join的condition
 	if (ref.condition) {
 		WhereBinder binder(*this, context);
 		result->condition = binder.Bind(ref.condition);

@@ -3,6 +3,7 @@
 #include "duckdb/execution/operator/scan/physical_expression_scan.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/planner/operator/logical_expression_get.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -12,6 +13,7 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalExpression
 
 	auto expr_scan = make_uniq<PhysicalExpressionScan>(op.types, std::move(op.expressions), op.estimated_cardinality);
 	expr_scan->children.push_back(std::move(plan));
+	std::cout << "PhysicalPlanGenerator::CreatePlan expr_scan->IsFoldable() : " << expr_scan->IsFoldable() << std::endl;
 	if (!expr_scan->IsFoldable()) {
 		return std::move(expr_scan);
 	}
@@ -33,6 +35,7 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalExpression
 		expr_scan->EvaluateExpression(context, expression_idx, nullptr, chunk);
 		chunk_scan->owned_collection->Append(append_state, chunk);
 	}
+	std::cout << "PhysicalPlanGenerator::CreatePlan expression get : " << chunk_scan->children.size() << std::endl;
 	return std::move(chunk_scan);
 }
 

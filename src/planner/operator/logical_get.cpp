@@ -7,6 +7,7 @@
 #include "duckdb/function/function_serialization.hpp"
 #include "duckdb/function/table/table_scan.hpp"
 #include "duckdb/storage/data_table.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -99,6 +100,12 @@ void LogicalGet::ResolveTypes() {
 			types.push_back(children[0]->types[entry]);
 		}
 	}
+	std::cout << "logical get : " << std::endl;
+	for(int i = 0; i < types.size(); i++) {
+		std::cout << "rt : " << int(types[i].id()) << '\t';
+	}
+
+	std::cout << std::endl;
 }
 
 idx_t LogicalGet::EstimateCardinality(ClientContext &context) {

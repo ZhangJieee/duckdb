@@ -1,5 +1,6 @@
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "duckdb/common/field_writer.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -15,6 +16,13 @@ void LogicalProjection::ResolveTypes() {
 	for (auto &expr : expressions) {
 		types.push_back(expr->return_type);
 	}
+
+	std::cout << "logical projection : " << std::endl;
+	for(int i = 0; i < types.size(); i++) {
+		std::cout << "rt : " << int(types[i].id()) << '\t';
+	}
+
+	std::cout << std::endl;
 }
 
 void LogicalProjection::Serialize(FieldWriter &writer) const {

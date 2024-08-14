@@ -11,6 +11,7 @@
 #include "duckdb/planner/constraints/bound_check_constraint.hpp"
 #include "duckdb/parallel/task_scheduler.hpp"
 #include "duckdb/catalog/duck_catalog.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -36,8 +37,13 @@ unique_ptr<PhysicalOperator> DuckCatalog::PlanCreateTableAs(ClientContext &conte
 unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalCreateTable &op) {
 	const auto &create_info = (CreateTableInfo &)*op.info->base;
 	auto &catalog = op.info->schema.catalog;
+	std::cout << "PhysicalPlanGenerator::CreatePlan schema : " << int(op.info->schema.type) << std::endl;
+	std::cout << "PhysicalPlanGenerator::CreatePlan catalog : " << catalog.GetCatalogType() << std::endl;
+	// 这里根据schema name 获取DuckSchemaEntry，从该实例中根据table name 获取 DATABASE_ENTRY类型的catalog entry, 确认是否已存在
 	auto existing_entry = catalog.GetEntry<TableCatalogEntry>(context, create_info.schema, create_info.table,
 	                                                          OnEntryNotFound::RETURN_NULL);
+	std::cout << "PhysicalPlanGenerator::CreatePlan existing_entry : " << !!existing_entry << std::endl;
+	std::cout << "PhysicalPlanGenerator::CreatePlan op.children.empty : " << op.children.empty() << std::endl;
 	bool replace = op.info->Base().on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT;
 	if ((!existing_entry || replace) && !op.children.empty()) {
 		auto plan = CreatePlan(*op.children[0]);

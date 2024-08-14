@@ -25,6 +25,9 @@ bool StandardColumnData::CheckZonemap(ColumnScanState &state, TableFilter &filte
 			return true;
 		}
 		state.segment_checked = true;
+		// filter的具体生成过程在优化器中处理的，场景是谓词下推
+		// 这里对应的filter实例是ConjunctionAndFilter
+		std::cout << "StandardColumnData::CheckZonemap filter.type = " << int(filter.filter_type) << std::endl;
 		auto prune_result = filter.CheckStatistics(state.current->stats.statistics);
 		if (prune_result != FilterPropagateResult::FILTER_ALWAYS_FALSE) {
 			return true;

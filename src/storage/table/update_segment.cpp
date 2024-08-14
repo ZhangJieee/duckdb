@@ -765,6 +765,8 @@ static void MergeUpdateLoopInternal(UpdateInfo *base_info, V *base_table_data, U
 	}
 #endif
 
+	// base_info_data 最近的UpdateSegment
+	// update_info_data 对应base_info_data的Undo Segment
 	// we have a new batch of updates (update, ids, count)
 	// we already have existing updates (base_info)
 	// and potentially, this transaction already has updates present (update_info)
@@ -773,6 +775,7 @@ static void MergeUpdateLoopInternal(UpdateInfo *base_info, V *base_table_data, U
 	auto base_info_data = (T *)base_info->tuple_data;
 	auto update_info_data = (T *)update_info->tuple_data;
 
+	// 这里以一个Vector为单位，将update 、 base info和 base table info 进行合并
 	// we first do the merging of the old values
 	// what we are trying to do here is update the "update_info" of this transaction with all the old data we require
 	// this means we need to merge (1) any previously updated values (stored in update_info->tuples)
@@ -790,12 +793,15 @@ static void MergeUpdateLoopInternal(UpdateInfo *base_info, V *base_table_data, U
 		// we have to merge the info for "ids[i]"
 		auto update_id = ids[idx] - base_id;
 
+		// 这里先将改动行之前的信息记录下来
 		while (update_info_offset < update_info->N && update_info->tuples[update_info_offset] < update_id) {
 			// old id comes before the current id: write it
 			result_values[result_offset] = update_info_data[update_info_offset];
 			result_ids[result_offset++] = update_info->tuples[update_info_offset];
 			update_info_offset++;
 		}
+
+		// 有目标row，直接copy
 		// write the new id
 		if (update_info_offset < update_info->N && update_info->tuples[update_info_offset] == update_id) {
 			// we have an id that is equivalent in the current update info: write the update info
@@ -805,31 +811,39 @@ static void MergeUpdateLoopInternal(UpdateInfo *base_info, V *base_table_data, U
 			continue;
 		}
 
+		// 到这里表示，目标row没有在最近的改动中，则继续判断base_info，即上一次的更新
 		/// now check if we have the current update_id in the base_info, or if we should fetch it from the base data
 		while (base_info_offset < base_info->N && base_info->tuples[base_info_offset] < update_id) {
 			base_info_offset++;
 		}
+
+		// 存在则记录到result中
 		if (base_info_offset < base_info->N && base_info->tuples[base_info_offset] == update_id) {
 			// it is! we have to move the tuple from base_info->ids[base_info_offset] to update_info
 			result_values[result_offset] = base_info_data[base_info_offset];
-		} else {
+		} else { // 不存在则从表中拿到目标Row中目标col的数据
 			// it is not! we have to move base_table_data[update_id] to update_info
 			result_values[result_offset] = UpdateSelectElement::Operation<T>(
 			    base_info->segment, OP::template Extract<T, V>(base_table_data, update_id));
 		}
 		result_ids[result_offset++] = update_id;
 	}
+
+	// 这里将剩余的update填充到result
 	// write any remaining entries from the old updates
 	while (update_info_offset < update_info->N) {
 		result_values[result_offset] = update_info_data[update_info_offset];
 		result_ids[result_offset++] = update_info->tuples[update_info_offset];
 		update_info_offset++;
 	}
+
+	// 这里将合并后的信息放入到update中,这里的信息则是Merge了base info的Undo Segment
 	// now copy them back
 	update_info->N = result_offset;
 	memcpy(update_info_data, result_values, result_offset * sizeof(T));
 	memcpy(update_info->tuples, result_ids, result_offset * sizeof(sel_t));
 
+	// 再将最新的updates merge 到 base info
 	// now we merge the new values into the base_info
 	result_offset = 0;
 	auto pick_new = [&](idx_t id, idx_t aidx, idx_t count) {
@@ -1118,6 +1132,7 @@ void UpdateSegment::Update(TransactionData transaction, idx_t column_index, Vect
 	// first check the version chain
 	UpdateInfo *node = nullptr;
 
+	std::cout << "UpdateSegment::Update root->info[vector_index] : " << !!root->info[vector_index] << std::endl;
 	if (root->info[vector_index]) {
 		// there is already a version here, check if there are any conflicts and search for the node that belongs to
 		// this transaction in the version chain
@@ -1135,6 +1150,7 @@ void UpdateSegment::Update(TransactionData transaction, idx_t column_index, Vect
 			node = node->next;
 		}
 		unique_ptr<char[]> update_info_data;
+		// 如果是非本次事务中的update，则构建一个Undo UpdateInfo node,并将上一次的更新merge到这个node中
 		if (!node) {
 			// no updates made yet by this transaction: initially the update info to empty
 			if (transaction.transaction) {
@@ -1180,6 +1196,7 @@ void UpdateSegment::Update(TransactionData transaction, idx_t column_index, Vect
 		// now create the transaction level update info in the undo log
 		unique_ptr<char[]> update_info_data;
 		UpdateInfo *transaction_node;
+		std::cout << "transaction.transaction : " << !!transaction.transaction << std::endl;
 		if (transaction.transaction) {
 			transaction_node = transaction.transaction->CreateUpdateInfo(type_size, count);
 		} else {

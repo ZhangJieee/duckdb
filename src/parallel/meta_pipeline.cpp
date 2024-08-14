@@ -2,6 +2,7 @@
 
 #include "duckdb/execution/executor.hpp"
 #include "duckdb/execution/operator/set/physical_recursive_cte.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -87,6 +88,7 @@ MetaPipeline &MetaPipeline::CreateChildMetaPipeline(Pipeline &current, PhysicalO
 	children.push_back(make_shared<MetaPipeline>(executor, state, &op));
 	auto child_meta_pipeline = children.back().get();
 	// child MetaPipeline must finish completely before this MetaPipeline can start
+	// 建立 Pipeline(data source) 和 Pipeline(data sink)的依赖关系，即PDSource作为PDSink的child,PDSink执行的前提是PDSource执行完成
 	current.AddDependency(child_meta_pipeline->GetBasePipeline());
 	// child meta pipeline is part of the recursive CTE too
 	child_meta_pipeline->recursive_cte = recursive_cte;
@@ -95,10 +97,12 @@ MetaPipeline &MetaPipeline::CreateChildMetaPipeline(Pipeline &current, PhysicalO
 
 Pipeline *MetaPipeline::CreatePipeline() {
 	pipelines.emplace_back(make_shared<Pipeline>(executor));
+	// 设置 Pipeline 的数据sink
 	state.SetPipelineSink(*pipelines.back(), sink, next_batch_index++);
 	return pipelines.back().get();
 }
 
+// 这里则是遍历start之后的所有Pipeline,并将其作为dependant的依赖记录到表中
 void MetaPipeline::AddDependenciesFrom(Pipeline *dependant, Pipeline *start, bool including) {
 	// find 'start'
 	auto it = pipelines.begin();
@@ -165,6 +169,7 @@ void MetaPipeline::CreateChildPipeline(Pipeline &current, PhysicalOperator &op, 
 	// child pipeline has a depency (within this MetaPipeline on all pipelines that were scheduled
 	// between 'current' and now (including 'current') - set them up
 	dependencies[child_pipeline].push_back(&current);
+	std::cout << "add dependencies : " << (void *)child_pipeline << (void *)&current << std::endl;
 	AddDependenciesFrom(child_pipeline, last_pipeline, false);
 	D_ASSERT(!GetDependencies(child_pipeline)->empty());
 }

@@ -141,6 +141,7 @@ unique_ptr<LogicalOperator> Binder::BindUpdateSet(LogicalOperator &op, unique_pt
 	auto proj_index = GenerateTableIndex();
 
 	vector<unique_ptr<Expression>> projection_expressions;
+	std::cout << "Binder::BindUpdateSet set info.expressions : " << set_info.columns.size() << std::endl;
 	D_ASSERT(set_info.columns.size() == set_info.expressions.size());
 	for (idx_t i = 0; i < set_info.columns.size(); i++) {
 		auto &colname = set_info.columns[i];
@@ -156,6 +157,7 @@ unique_ptr<LogicalOperator> Binder::BindUpdateSet(LogicalOperator &op, unique_pt
 			throw BinderException("Multiple assignments to same column \"%s\"", colname);
 		}
 		columns.push_back(column.Physical());
+		std::cout << "expr->type : " << int(expr->type) << std::endl;
 		if (expr->type == ExpressionType::VALUE_DEFAULT) {
 			op.expressions.push_back(make_uniq<BoundDefaultExpression>(column.Type()));
 		} else {
@@ -234,6 +236,7 @@ BoundStatement Binder::Bind(UpdateStatement &stmt) {
 	D_ASSERT(stmt.set_info);
 	D_ASSERT(stmt.set_info->columns.size() == stmt.set_info->expressions.size());
 
+	// 这里构造LogicalProjection，会将SET expr中的col type记录下来
 	auto proj_tmp = BindUpdateSet(*update, std::move(root), *stmt.set_info, table, update->columns);
 	D_ASSERT(proj_tmp->type == LogicalOperatorType::LOGICAL_PROJECTION);
 	auto proj = unique_ptr_cast<LogicalOperator, LogicalProjection>(std::move(proj_tmp));

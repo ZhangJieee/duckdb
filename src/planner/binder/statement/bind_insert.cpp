@@ -410,6 +410,7 @@ BoundStatement Binder::Bind(InsertStatement &stmt) {
 	AddCTEMap(stmt.cte_map);
 
 	vector<LogicalIndex> named_column_map;
+	std::cout << "stmt.columns.empty() : " << stmt.columns.empty() << "\tdefault values : " << !!stmt.default_values << std::endl;
 	if (!stmt.columns.empty() || stmt.default_values) {
 		// insertion statement specifies column list
 
@@ -489,6 +490,7 @@ BoundStatement Binder::Bind(InsertStatement &stmt) {
 
 	// parse select statement and add to logical plan
 	unique_ptr<LogicalOperator> root;
+	std::cout << "stmt.select_statement : " << !!stmt.select_statement << std::endl;
 	if (stmt.select_statement) {
 		auto select_binder = Binder::CreateBinder(context, this);
 		auto root_select = select_binder->Bind(*stmt.select_statement);
@@ -497,6 +499,7 @@ BoundStatement Binder::Bind(InsertStatement &stmt) {
 		CheckInsertColumnCountMismatch(expected_columns, root_select.types.size(), !stmt.columns.empty(),
 		                               table.name.c_str());
 
+		// 这里判断table.column中的types和VALUES 表达式中的数据类型是否一致，并进行处理
 		root = CastLogicalOperatorToTypes(root_select.types, insert->expected_types, std::move(root_select.plan));
 	} else {
 		root = make_uniq<LogicalDummyScan>(GenerateTableIndex());

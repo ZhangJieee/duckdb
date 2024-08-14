@@ -14,6 +14,7 @@
 #include "duckdb/main/config.hpp"
 #include "duckdb/planner/tableref/bound_dummytableref.hpp"
 #include "duckdb/main/client_context.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -62,11 +63,23 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 			return std::move(result);
 		}
 	}
+	std::cout << "not a CTE" << std::endl;
 	// not a CTE
 	// extract a table or view from the catalog
+	// 从catalog 提取表信息
+	std::cout << "table name : "<< ref.table_name << '\t' << "alias : " << ref.alias << '\t' << "column_name_alias : " << ref.column_name_alias.size() << std::endl;
 	BindSchemaOrCatalog(ref.catalog_name, ref.schema_name);
+	std::cout << "catalog name : "<< ref.catalog_name << '\t' << "schema name : " << ref.schema_name << std::endl;
 	auto table_or_view = Catalog::GetEntry(context, CatalogType::TABLE_ENTRY, ref.catalog_name, ref.schema_name,
 	                                       ref.table_name, OnEntryNotFound::RETURN_NULL, error_context);
+
+	std::cout << "table or view : " << !!table_or_view << std::endl;
+	if (table_or_view) {
+		std::cout << " to sql : " << table_or_view->ToSQL() << std::endl;
+		std::cout << "type : "<< int(table_or_view->type) << std::endl;
+	}
+	std::cout << "bind mode : "<< int(GetBindingMode()) << std::endl;
+
 	// we still didn't find the table
 	if (GetBindingMode() == BindingMode::EXTRACT_NAMES) {
 		if (!table_or_view || table_or_view->type == CatalogType::TABLE_ENTRY) {
@@ -117,9 +130,13 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 	case CatalogType::TABLE_ENTRY: {
 		// base table: create the BoundBaseTableRef node
 		auto table_index = GenerateTableIndex();
+		// 这里table对应的实际类型:DuckTableEntry
 		auto &table = table_or_view->Cast<TableCatalogEntry>();
 
+		// 获取表相关的操作方法
 		unique_ptr<FunctionData> bind_data;
+		// bind_data -> TableScanBindData
+		// scan_function -> TableScanFunction
 		auto scan_function = table.GetScanFunction(context, bind_data);
 		auto alias = ref.alias.empty() ? ref.table_name : ref.alias;
 		// TODO: bundle the type and name vector in a struct (e.g PackedColumnMetadata)
@@ -129,7 +146,10 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 
 		vector<LogicalType> return_types;
 		vector<string> return_names;
+		// 获取table的所有column信息
+		std::cout << "Print table columns : \n";
 		for (auto &col : table.GetColumns().Logical()) {
+			std::cout << "col type : " << int(col.Type().id()) << '\t' << "col name : " << col.Name() << std::endl;
 			table_types.push_back(col.Type());
 			table_names.push_back(col.Name());
 			return_types.push_back(col.Type());
@@ -137,6 +157,7 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 		}
 		table_names = BindContext::AliasColumnNames(alias, table_names, ref.column_name_alias);
 
+		// 创建逻辑执行动作: <LogicalGet>
 		auto logical_get = make_uniq<LogicalGet>(table_index, scan_function, std::move(bind_data),
 		                                         std::move(return_types), std::move(return_names));
 		bind_context.AddBaseTable(table_index, alias, table_names, table_types, logical_get->column_ids,

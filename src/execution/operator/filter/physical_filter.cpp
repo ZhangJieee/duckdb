@@ -2,6 +2,7 @@
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
 #include "duckdb/parallel/thread_context.hpp"
+#include <iostream>
 namespace duckdb {
 
 PhysicalFilter::PhysicalFilter(vector<LogicalType> types, vector<unique_ptr<Expression>> select_list,
@@ -42,7 +43,12 @@ unique_ptr<OperatorState> PhysicalFilter::GetOperatorState(ExecutionContext &con
 OperatorResultType PhysicalFilter::ExecuteInternal(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
                                                    GlobalOperatorState &gstate, OperatorState &state_p) const {
 	auto &state = (FilterState &)state_p;
+	// 这里根据TableScan算子中获取到的结果进行 Compare 和 Filter,因为目标col有index，所以这里直接获取到目标col
+	std::cout << "PhysicalFilter::ExecuteInternal input : " << input.ToString() << std::endl;
+	// - FLAT INTEGER: 1 = [ 30] Where中的Col Value
+	// - FLAT BIGINT:  1 = [ 2]  所在的Row Index
 	idx_t result_count = state.executor.SelectExpression(input, state.sel);
+	std::cout << "PhysicalFilter::ExecuteInternal input.size : " << input.size() << "\t result_count : " << result_count << std::endl;
 	if (result_count == input.size()) {
 		// nothing was filtered: skip adding any selection vectors
 		chunk.Reference(input);

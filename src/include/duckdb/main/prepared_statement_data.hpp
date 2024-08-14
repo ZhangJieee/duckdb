@@ -44,6 +44,7 @@ public:
 
 	//! The catalog version of when the prepared statement was bound
 	//! If this version is lower than the current catalog version, we have to rebind the prepared statement
+	// 每次prepared statement 被 bind 后，会通过一个catalog_version标记，如果该version 小于 当前的version，需要重新bind
 	idx_t catalog_version;
 
 public:

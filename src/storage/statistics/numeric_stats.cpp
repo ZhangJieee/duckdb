@@ -3,6 +3,7 @@
 #include "duckdb/common/field_writer.hpp"
 #include "duckdb/common/types/vector.hpp"
 #include "duckdb/common/operator/comparison_operators.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -151,6 +152,7 @@ FilterPropagateResult CheckZonemapTemplated(const BaseStatistics &stats, Express
                                             const Value &constant_value) {
 	T min_value = NumericStats::GetMinUnsafe<T>(stats);
 	T max_value = NumericStats::GetMaxUnsafe<T>(stats);
+	std::cout << "stats " << stats.ToString() << std::endl;
 	T constant = constant_value.GetValueUnsafe<T>();
 	switch (comparison_type) {
 	case ExpressionType::COMPARE_EQUAL:

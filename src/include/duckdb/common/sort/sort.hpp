@@ -44,7 +44,9 @@ public:
 	vector<BaseStatistics *> stats;
 	vector<bool> has_null;
 
+	// 所有排序列大小的总和
 	idx_t comparison_size;
+	// align(comparison_size + 4B的序列号)
 	idx_t entry_size;
 
 	RowLayout blob_layout;
@@ -128,17 +130,23 @@ public:
 	//! The buffer manager
 	BufferManager *buffer_manager;
 	//! The sorting and payload layouts
+	// 用于记录目标列的排序行为,asc,desc,null first..
 	const SortLayout *sort_layout;
+	// 列转行, radix normalize的基本信息
 	const RowLayout *payload_layout;
 	//! Radix/memcmp sortable data
+	// 存储radix normalize信息
 	unique_ptr<RowDataCollection> radix_sorting_data;
 	//! Variable sized sorting data and accompanying heap
 	unique_ptr<RowDataCollection> blob_sorting_data;
 	unique_ptr<RowDataCollection> blob_sorting_heap;
 	//! Payload data and accompanying heap
+	// 存储payload列转行的数据
 	unique_ptr<RowDataCollection> payload_data;
+	// 用于varchar
 	unique_ptr<RowDataCollection> payload_heap;
 	//! Sorted data
+	// 用于存放排序后的结果
 	vector<unique_ptr<SortedBlock>> sorted_blocks;
 
 private:

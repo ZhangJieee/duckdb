@@ -40,6 +40,7 @@ idx_t GetNestedSortingColSize(idx_t &col_size, const LogicalType &type) {
 SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
     : column_count(orders.size()), all_constant(true), comparison_size(0), entry_size(0) {
 	vector<LogicalType> blob_layout_types;
+	// 输入为指定排序顺序的列
 	for (idx_t i = 0; i < column_count; i++) {
 		const auto &order = orders[i];
 
@@ -49,6 +50,7 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 		logical_types.push_back(expr.return_type);
 
 		auto physical_type = expr.return_type.InternalType();
+		std::cout << "sort col phy type : " << int(physical_type) << std::endl;
 		constant_size.push_back(TypeIsConstantSize(physical_type));
 
 		if (order.stats) {
@@ -59,12 +61,14 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 			has_null.push_back(true);
 		}
 
+		// 针对排序列存在null值,这里统一会多申请一个byte的空间,后续调整排序列会用到,见TemplatedRadixScatter
 		idx_t col_size = has_null.back() ? 1 : 0;
 		prefix_lengths.push_back(0);
 		if (!TypeIsConstantSize(physical_type) && physical_type != PhysicalType::VARCHAR) {
 			prefix_lengths.back() = GetNestedSortingColSize(col_size, expr.return_type);
 		} else if (physical_type == PhysicalType::VARCHAR) {
 			idx_t size_before = col_size;
+			// 针对可变长度的col,需要根据实际数据的stats来进行推断实际size
 			if (stats.back() && StringStats::HasMaxStringLength(*stats.back())) {
 				col_size += StringStats::MaxStringLength(*stats.back());
 				if (col_size > 12) {
@@ -80,9 +84,12 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 			col_size += GetTypeIdSize(physical_type);
 		}
 
+		std::cout << "sort layout : col " << order.ToString() << "\t" << col_size << std::endl;
 		comparison_size += col_size;
 		column_sizes.push_back(col_size);
 	}
+
+	// 一个行大小 + 一个序号
 	entry_size = comparison_size + sizeof(uint32_t);
 
 	// 8-byte alignment
@@ -111,14 +118,17 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 		entry_size = AlignValue(entry_size);
 	}
 
+	// 如果目标列变长,初始化blob layout
 	for (idx_t col_idx = 0; col_idx < column_count; col_idx++) {
 		all_constant = all_constant && constant_size[col_idx];
 		if (!constant_size[col_idx]) {
+			// 构建目标列idx到blob layout type的映射,目前理解这个是后面对排序列进行排序的时候会用到,针对排序列中有变长列的情况
 			sorting_to_blob_col[col_idx] = blob_layout_types.size();
 			blob_layout_types.push_back(logical_types[col_idx]);
 		}
 	}
 
+	// 初始化变长列的行布局,这里只记录变长列
 	blob_layout.Initialize(blob_layout_types);
 }
 
@@ -158,6 +168,7 @@ void LocalSortState::Initialize(GlobalSortState &global_sort_state, BufferManage
 	sort_layout = &global_sort_state.sort_layout;
 	payload_layout = &global_sort_state.payload_layout;
 	buffer_manager = &buffer_manager_p;
+	// radix_sorting_data中记录所有的排序列信息,注意这里控制blob和payload中的数据block为keep pin状态
 	// Radix sorting data
 	radix_sorting_data = make_uniq<RowDataCollection>(
 	    *buffer_manager, RowDataCollection::EntriesPerBlock(sort_layout->entry_size), sort_layout->entry_size);
@@ -168,6 +179,7 @@ void LocalSortState::Initialize(GlobalSortState &global_sort_state, BufferManage
 		    *buffer_manager, RowDataCollection::EntriesPerBlock(blob_row_width), blob_row_width);
 		blob_sorting_heap = make_uniq<RowDataCollection>(*buffer_manager, (idx_t)Storage::BLOCK_SIZE, 1, true);
 	}
+	// 这里实际保存的是列转行后的数据
 	// Payload data
 	auto payload_row_width = payload_layout->GetRowWidth();
 	payload_data = make_uniq<RowDataCollection>(*buffer_manager, RowDataCollection::EntriesPerBlock(payload_row_width),
@@ -181,7 +193,10 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 	D_ASSERT(sort.size() == payload.size());
 	// Build and serialize sorting data to radix sortable rows
 	auto data_pointers = FlatVector::GetData<data_ptr_t>(addresses);
+	std::cout << "data pointers : " << (void*)data_pointers << std::endl;
+	// 这里返回已经分配好空间的首地址集合
 	auto handles = radix_sorting_data->Build(sort.size(), data_pointers, nullptr);
+	// 将指定了排序的列数据按照排序方式放入到data pointers中,转为行存
 	for (idx_t sort_col = 0; sort_col < sort.ColumnCount(); sort_col++) {
 		bool has_null = sort_layout->has_null[sort_col];
 		bool nulls_first = sort_layout->order_by_null_types[sort_col] == OrderByNullType::NULLS_FIRST;
@@ -191,6 +206,7 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 		                            sort_layout->column_sizes[sort_col]);
 	}
 
+	// 这里现将变长列填充到addresses中,blob_sorting_heap用于存放具体的列数据信息,注意这里blob_layout中只保存的是指定排序的变长列,所有这里需要额外的block记录具体的列信息
 	// Also fully serialize blob sorting columns (to be able to break ties
 	if (!sort_layout->all_constant) {
 		DataChunk blob_chunk;
@@ -207,6 +223,7 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 		D_ASSERT(blob_sorting_heap->keep_pinned);
 	}
 
+	// 这里填充完整的行,完成列转行,最终数据存放到payload_heap中
 	// Finally, serialize payload data
 	handles = payload_data->Build(payload.size(), data_pointers, nullptr);
 	auto input_data = payload.ToUnifiedFormat();
@@ -234,18 +251,26 @@ void LocalSortState::Sort(GlobalSortState &global_sort_state, bool reorder_heap)
 	// Move all data to a single SortedBlock
 	sorted_blocks.emplace_back(make_uniq<SortedBlock>(*buffer_manager, global_sort_state));
 	auto &sb = *sorted_blocks.back();
+
+	// 这里将radix_sorting_data中的多个blocks进行整合并放到sorted_blocks中
 	// Fixed-size sorting data
 	auto sorting_block = ConcatenateBlocks(*radix_sorting_data);
 	sb.radix_sorting_data.push_back(std::move(sorting_block));
+
+	// 这里同样对可变长度的数据整合
 	// Variable-size sorting data
 	if (!sort_layout->all_constant) {
 		auto &blob_data = *blob_sorting_data;
 		auto new_block = ConcatenateBlocks(blob_data);
 		sb.blob_sorting_data->data_blocks.push_back(std::move(new_block));
 	}
+
+	// 对payload 整合
 	// Payload data
 	auto payload_block = ConcatenateBlocks(*payload_data);
 	sb.payload_data->data_blocks.push_back(std::move(payload_block));
+
+	// 开始排序
 	// Now perform the actual sort
 	SortInMemory();
 	// Re-order before the merge sort
@@ -285,9 +310,11 @@ void LocalSortState::ReOrder(SortedData &sd, data_ptr_t sorting_ptr, RowDataColl
                              bool reorder_heap) {
 	sd.swizzled = reorder_heap;
 	auto &unordered_data_block = sd.data_blocks.back();
+	// payload中的数据量
 	const idx_t count = unordered_data_block->count;
 	auto unordered_data_handle = buffer_manager->Pin(unordered_data_block->block);
 	const data_ptr_t unordered_data_ptr = unordered_data_handle.Ptr();
+	// 创建新block存在排序后的结果
 	// Create new block that will hold re-ordered row data
 	auto ordered_data_block =
 	    make_uniq<RowDataBlock>(*buffer_manager, unordered_data_block->capacity, unordered_data_block->entry_size);
@@ -297,6 +324,7 @@ void LocalSortState::ReOrder(SortedData &sd, data_ptr_t sorting_ptr, RowDataColl
 	// Re-order fixed-size row layout
 	const idx_t row_width = sd.layout.GetRowWidth();
 	const idx_t sorting_entry_size = gstate.sort_layout.entry_size;
+	// 这里依次读取排序后的列表元素,根据最后位置上的行号,从payload中获取完整行信息并填充到新的block中完成排序
 	for (idx_t i = 0; i < count; i++) {
 		auto index = Load<uint32_t>(sorting_ptr);
 		FastMemcpy(ordered_data_ptr, unordered_data_ptr + index * row_width, row_width);
@@ -346,6 +374,7 @@ void LocalSortState::ReOrder(SortedData &sd, data_ptr_t sorting_ptr, RowDataColl
 void LocalSortState::ReOrder(GlobalSortState &gstate, bool reorder_heap) {
 	auto &sb = *sorted_blocks.back();
 	auto sorting_handle = buffer_manager->Pin(sb.radix_sorting_data.back()->block);
+	// 这里拿到的是之前为每行分配的index
 	const data_ptr_t sorting_ptr = sorting_handle.Ptr() + gstate.sort_layout.comparison_size;
 	// Re-order variable size sorting columns
 	if (!gstate.sort_layout.all_constant) {
@@ -370,9 +399,11 @@ void GlobalSortState::AddLocalState(LocalSortState &local_sort_state) {
 	// we only re-order the heap when the data is expected to not fit in memory
 	// re-ordering the heap avoids random access when reading/merging but incurs a significant cost of shuffling data
 	// when data fits in memory, doing random access on reads is cheaper than re-shuffling
+	// 仅针对没有装配到内存的数据进行重新排序
 	local_sort_state.Sort(*this, external || !local_sort_state.sorted_blocks.empty());
 
 	// Append local state sorted data to this global state
+	// locked,将localState中的SortedBlock拷贝到Global State
 	lock_guard<mutex> append_guard(lock);
 	for (auto &sb : local_sort_state.sorted_blocks) {
 		sorted_blocks.push_back(std::move(sb));
@@ -439,6 +470,8 @@ void GlobalSortState::InitializeMergeRound() {
 	num_pairs = sorted_blocks.size() / 2;
 	l_start = 0;
 	r_start = 0;
+	// 这里提前为多个thread分配空间,最终所有的thread的排序结果会放到这里
+	// 这里每次分配sorted_blocks.size() / 2的空间
 	// Allocate room for merge results
 	for (idx_t p_idx = 0; p_idx < num_pairs; p_idx++) {
 		sorted_blocks_temp.emplace_back();

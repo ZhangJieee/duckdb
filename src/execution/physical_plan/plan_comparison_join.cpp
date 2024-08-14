@@ -59,6 +59,8 @@ bool ExtractNumericValue(Value val, int64_t &result) {
 }
 
 void CheckForPerfectJoinOpt(LogicalComparisonJoin &op, PerfectHashJoinStats &join_state) {
+	// 优化器中会填充数据到join_states
+	std::cout << "CheckForPerfectJoinOpt ... " << op.join_stats.empty() << std::endl;
 	// we only do this optimization for inner joins
 	if (op.join_type != JoinType::INNER) {
 		return;

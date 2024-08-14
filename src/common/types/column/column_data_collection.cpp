@@ -6,6 +6,7 @@
 #include "duckdb/common/types/value_map.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -320,6 +321,7 @@ struct BaseValueCopy {
 	                   idx_t source_idx) {
 		auto result_data = (T *)target;
 		auto source_data = (T *)source;
+		std::cout << "BaseValueCopy<T> source data : " << *(int32_t *)source_data << std::endl;
 		result_data[target_idx] = OP::Operation(meta_data, source_data[source_idx]);
 	}
 };
@@ -390,8 +392,10 @@ static void TemplatedColumnDataCopy(ColumnDataMetaData &meta_data, const Unified
 			// initialize the validity mask to set all to valid
 			result_validity.SetAllValid(STANDARD_VECTOR_SIZE);
 		}
+		// 这里将 storage层 获取到的数据 copy 到meta_data.segment
 		for (idx_t i = 0; i < append_count; i++) {
 			auto source_idx = source_data.sel->get_index(offset + i);
+			std::cout << "source_data.validity.RowIsValid(source_idx) : " << source_data.validity.RowIsValid(source_idx) << std::endl;
 			if (source_data.validity.RowIsValid(source_idx)) {
 				OP::template Assign<OP>(meta_data, base_ptr, source_data.data, current_segment.count + i, source_idx);
 			} else {
@@ -401,6 +405,7 @@ static void TemplatedColumnDataCopy(ColumnDataMetaData &meta_data, const Unified
 		current_segment.count += append_count;
 		offset += append_count;
 		remaining -= append_count;
+		std::cout << "TemplatedColumnDataCopy : " << remaining << std::endl;
 		if (remaining > 0) {
 			// need to append more, check if we need to allocate a new vector or not
 			if (!current_segment.next_data.IsValid()) {
@@ -706,7 +711,11 @@ void ColumnDataCollection::Append(ColumnDataAppendState &state, DataChunk &input
 	D_ASSERT(!finished_append);
 	D_ASSERT(types == input.GetTypes());
 
+	std::cout << "ColumnDataCollection::Append input.size : " << input.size() << std::endl;
+
+	// 数据最终拷贝到segment中
 	auto &segment = *segments.back();
+	// input.data 数据块 转换成 统一Vector格式的 数据类型 state.vector_data
 	for (idx_t vector_idx = 0; vector_idx < types.size(); vector_idx++) {
 		if (IsComplexType(input.data[vector_idx].GetType())) {
 			input.data[vector_idx].Flatten(input.size());
@@ -832,6 +841,7 @@ bool ColumnDataCollection::NextScanIndex(ColumnDataScanState &state, idx_t &chun
 	}
 	state.next_row_index += segments[state.segment_index]->chunk_data[state.chunk_index].count;
 	segment_index = state.segment_index;
+	//这里为什么会++ TODO
 	chunk_index = state.chunk_index++;
 	return true;
 }

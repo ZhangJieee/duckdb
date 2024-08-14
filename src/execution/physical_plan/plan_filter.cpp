@@ -12,7 +12,10 @@ namespace duckdb {
 
 unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalFilter &op) {
 	D_ASSERT(op.children.size() == 1);
+	std::cout << "PhysicalPlanGenerator::CreatePlan : Logical Filter" << std::endl;
 	unique_ptr<PhysicalOperator> plan = CreatePlan(*op.children[0]);
+
+	std::cout << "PhysicalPlanGenerator::CreatePlan : Logical Filter op.expressions.empty() " << op.expressions.empty() << std::endl;
 	if (!op.expressions.empty()) {
 		D_ASSERT(plan->types.size() > 0);
 		// create a filter if there is anything to filter
@@ -20,6 +23,7 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalFilter &op
 		filter->children.push_back(std::move(plan));
 		plan = std::move(filter);
 	}
+	std::cout << "PhysicalPlanGenerator::CreatePlan : Logical Filter op.projection_map.empty() " << op.projection_map.empty() << std::endl;
 	if (!op.projection_map.empty()) {
 		// there is a projection map, generate a physical projection
 		vector<unique_ptr<Expression>> select_list;

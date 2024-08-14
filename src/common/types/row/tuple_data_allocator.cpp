@@ -53,10 +53,12 @@ void TupleDataAllocator::Build(TupleDataSegment &segment, TupleDataPinState &pin
                                TupleDataChunkState &chunk_state, const idx_t append_offset, const idx_t append_count) {
 	D_ASSERT(this == segment.allocator.get());
 	auto &chunks = segment.chunks;
+	// 这里只会保存最后一个chunk的block handles,之前的chunk中的block handles则会被erase掉,最后析构
 	if (!chunks.empty()) {
 		ReleaseOrStoreHandles(pin_state, segment, chunks.back(), true);
 	}
 
+	// 保存DataChunk -> DataChunkPart的关联关系
 	// Build the chunk parts for the incoming data
 	vector<pair<idx_t, idx_t>> chunk_part_indices;
 	idx_t offset = 0;
@@ -66,8 +68,11 @@ void TupleDataAllocator::Build(TupleDataSegment &segment, TupleDataPinState &pin
 		}
 		auto &chunk = chunks.back();
 
+		// 构建DataChunkPart信息,即在一个chunk上对局部信息进行描述
 		// Build the next part
 		auto next = MinValue<idx_t>(append_count - offset, STANDARD_VECTOR_SIZE - chunk.count);
+
+		// 将新建的part信息添加到chunk中,同时将row block id信息写入chunk
 		chunk.AddPart(BuildChunkPart(pin_state, chunk_state, append_offset + offset, next), layout);
 		chunk_part_indices.emplace_back(chunks.size() - 1, chunk.parts.size() - 1);
 
@@ -84,8 +89,10 @@ void TupleDataAllocator::Build(TupleDataSegment &segment, TupleDataPinState &pin
 	for (auto &indices : chunk_part_indices) {
 		parts.emplace_back(&segment.chunks[indices.first].parts[indices.second]);
 	}
+	// 将空间按照part划分分配到row_locations上,同时将block handle记录到pin state中
 	InitializeChunkStateInternal(pin_state, chunk_state, append_offset, false, true, false, parts);
 
+	// 减少meta data,针对chunk part信息进行合并
 	// To reduce metadata, we try to merge chunk parts where possible
 	// Due to the way chunk parts are constructed, only the last part of the first chunk is eligible for merging
 	segment.chunks[chunk_part_indices[0].first].MergeLastChunkPart(layout);
@@ -98,14 +105,18 @@ TupleDataChunkPart TupleDataAllocator::BuildChunkPart(TupleDataPinState &pin_sta
 	D_ASSERT(append_count != 0);
 	TupleDataChunkPart result;
 
+	// 分配数据块空间
 	// Allocate row block (if needed)
 	if (row_blocks.empty() || row_blocks.back().RemainingCapacity() < layout.GetRowWidth()) {
 		row_blocks.emplace_back(buffer_manager, (idx_t)Storage::BLOCK_SIZE);
 	}
+	// 记录part所在的block id
 	result.row_block_index = row_blocks.size() - 1;
 	auto &row_block = row_blocks[result.row_block_index];
+	// 开始位置
 	result.row_block_offset = row_block.size;
 
+	// part包含的数据行
 	// Set count (might be reduced later when checking heap space)
 	result.count = MinValue<idx_t>(row_block.RemainingCapacity(layout.GetRowWidth()), append_count);
 	if (!layout.AllConstant()) {
@@ -158,6 +169,7 @@ TupleDataChunkPart TupleDataAllocator::BuildChunkPart(TupleDataPinState &pin_sta
 	}
 	D_ASSERT(result.count != 0 && result.count <= STANDARD_VECTOR_SIZE);
 
+	// 预先标记block的使用量
 	// Mark this portion of the row block as filled
 	row_block.size += result.count * layout.GetRowWidth();
 
@@ -217,6 +229,7 @@ void TupleDataAllocator::InitializeChunkStateInternal(TupleDataPinState &pin_sta
 		// Set up row locations for the scan
 		const auto row_width = layout.GetRowWidth();
 		const auto base_row_ptr = GetRowPointer(pin_state, *part);
+		// 这里获取到每行的首地址，后续insert global HT会用到
 		for (idx_t i = 0; i < next; i++) {
 			row_locations[offset + i] = base_row_ptr + i * row_width;
 		}
@@ -369,6 +382,7 @@ void TupleDataAllocator::RecomputeHeapPointers(Vector &old_heap_ptrs, const Sele
 	}
 }
 
+// 关于算子执行中产生的中间数据,选择是否常驻内存或用完即弃,通过配置具体的pin state来实现,pin_state访问目标block handle并会将其记录下来,这里会根据block ids来确认是否需要保留
 void TupleDataAllocator::ReleaseOrStoreHandles(TupleDataPinState &pin_state, TupleDataSegment &segment,
                                                TupleDataChunk &chunk, bool release_heap) {
 	D_ASSERT(this == segment.allocator.get());

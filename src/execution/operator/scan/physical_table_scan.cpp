@@ -6,6 +6,7 @@
 #include "duckdb/transaction/transaction.hpp"
 
 #include <utility>
+#include <iostream>
 
 namespace duckdb {
 
@@ -55,6 +56,8 @@ class TableScanLocalSourceState : public LocalSourceState {
 public:
 	TableScanLocalSourceState(ExecutionContext &context, TableScanGlobalSourceState &gstate,
 	                          const PhysicalTableScan &op) {
+		std::cout << "function init_local : "<< !!op.function.init_local << std::endl;
+		// init_local 注册位置 table_scan.cpp:459
 		if (op.function.init_local) {
 			TableFunctionInitInput input(op.bind_data.get(), op.column_ids, op.projection_ids, op.table_filters.get());
 			local_state = op.function.init_local(context, input, gstate.global_state.get());
@@ -80,6 +83,8 @@ void PhysicalTableScan::GetData(ExecutionContext &context, DataChunk &chunk, Glo
 	auto &state = lstate.Cast<TableScanLocalSourceState>();
 
 	TableFunctionInput data(bind_data.get(), state.local_state.get(), gstate.global_state.get());
+	std::cout << "PhysicalTableScan::GetData : " << function.ToString() << std::endl;
+	// TableScanFunc
 	function.function(context.client, data, chunk);
 }
 

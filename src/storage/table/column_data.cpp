@@ -96,12 +96,17 @@ void ColumnData::InitializeScanWithOffset(ColumnScanState &state, idx_t row_idx)
 
 idx_t ColumnData::ScanVector(ColumnScanState &state, Vector &result, idx_t remaining) {
 	state.previous_states.clear();
+	std::cout << "state.version : " << state.version << std::endl;
+	std::cout << "this->version : " << version << std::endl;
+	std::cout << "state.initialized : " << state.initialized << std::endl;
 	if (state.version != version) {
 		InitializeScanWithOffset(state, state.row_index);
 		state.current->InitializeScan(state);
 		state.initialized = true;
 	} else if (!state.initialized) {
 		D_ASSERT(state.current);
+
+		// 初始化 state.scan_state
 		state.current->InitializeScan(state);
 		state.internal_index = state.current->start;
 		state.initialized = true;
@@ -120,7 +125,11 @@ idx_t ColumnData::ScanVector(ColumnScanState &state, Vector &result, idx_t remai
 		idx_t scan_count = MinValue<idx_t>(remaining, state.current->start + state.current->count - state.row_index);
 		idx_t result_offset = initial_remaining - remaining;
 		if (scan_count > 0) {
+			std::cout << "ColumnData::ScanVector scan count : " << scan_count << std::endl;
+			std::cout << "ColumnData::ScanVector initial_remaining : " << initial_remaining << std::endl;
+			std::cout << "ColumnData::ScanVector state.current.segment_type : " << int(state.current->segment_type) << std::endl;
 			state.current->Scan(state, scan_count, result, result_offset, scan_count == initial_remaining);
+			std::cout << "ColumnData::ScanVector result : " << result.ToString() << std::endl;
 
 			state.row_index += scan_count;
 			remaining -= scan_count;
@@ -146,7 +155,9 @@ idx_t ColumnData::ScanVector(ColumnScanState &state, Vector &result, idx_t remai
 template <bool SCAN_COMMITTED, bool ALLOW_UPDATES>
 idx_t ColumnData::ScanVector(TransactionData transaction, idx_t vector_index, ColumnScanState &state, Vector &result) {
 	auto scan_count = ScanVector(state, result, STANDARD_VECTOR_SIZE);
+	std::cout << "ColumnData::ScanVector result : " << result.ToString() << std::endl;
 
+	std::cout << "updates : " << !!updates << std::endl;
 	lock_guard<mutex> update_guard(update_lock);
 	if (updates) {
 		if (!ALLOW_UPDATES && updates->HasUncommittedUpdates(vector_index)) {
@@ -273,11 +284,13 @@ void ColumnData::MergeIntoStatistics(BaseStatistics &other) {
 
 void ColumnData::InitializeAppend(ColumnAppendState &state) {
 	auto l = data.Lock();
+	std::cout << "ColumnData::InitializeAppend data empty : " << data.IsEmpty(l) << std::endl;
 	if (data.IsEmpty(l)) {
 		// no segments yet, append an empty segment
 		AppendTransientSegment(l, start);
 	}
 	auto segment = data.GetLastSegment(l);
+	std::cout << "segment->segment_type : " << int(segment->segment_type) << std::endl;
 	if (segment->segment_type == ColumnSegmentType::PERSISTENT) {
 		// no transient segments yet
 		auto total_rows = segment->start + segment->count;
@@ -373,6 +386,7 @@ void ColumnData::Update(TransactionData transaction, idx_t column_index, Vector 
 	auto fetch_count = Fetch(state, row_ids[0], base_vector);
 
 	base_vector.Flatten(fetch_count);
+	std::cout << "ColumnData::Update base_vector : " << base_vector.ToString() << std::endl;
 	updates->Update(transaction, column_index, update_vector, row_ids, update_count, base_vector);
 }
 
@@ -390,6 +404,8 @@ unique_ptr<BaseStatistics> ColumnData::GetUpdateStatistics() {
 
 void ColumnData::AppendTransientSegment(SegmentLock &l, idx_t start_row) {
 	idx_t segment_size = Storage::BLOCK_SIZE;
+	std::cout << "ColumnData::AppendTransientSegment start_row : " << start_row << std::endl;
+	std::cout << "(start_row == idx_t(MAX_ROW_ID)) : " << (start_row == idx_t(MAX_ROW_ID)) << std::endl;
 	if (start_row == idx_t(MAX_ROW_ID)) {
 #if STANDARD_VECTOR_SIZE < 1024
 		segment_size = 1024 * GetTypeIdSize(type.InternalType());
@@ -444,6 +460,7 @@ unique_ptr<ColumnCheckpointState> ColumnData::Checkpoint(RowGroup &row_group,
 	lock_guard<mutex> update_guard(update_lock);
 
 	ColumnDataCheckpointer checkpointer(*this, row_group, *checkpoint_state, checkpoint_info);
+	// 这里针对目标列的ColumnSegment集合进行checkpoint
 	checkpointer.Checkpoint(std::move(nodes));
 
 	// replace the old tree with the new one
@@ -478,6 +495,7 @@ void ColumnData::DeserializeColumn(Deserializer &source) {
 
 		this->count += tuple_count;
 
+		// 创建一个持久型的Segment
 		// create a persistent segment
 		auto segment = ColumnSegment::CreatePersistentSegment(
 		    GetDatabase(), block_manager, data_pointer.block_pointer.block_id, data_pointer.block_pointer.offset, type,

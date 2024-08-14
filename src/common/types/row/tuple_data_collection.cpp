@@ -194,6 +194,7 @@ void TupleDataCollection::AppendUnified(TupleDataPinState &pin_state, TupleDataC
 		TupleDataCollection::ComputeHeapSizes(chunk_state, new_chunk, append_sel, actual_append_count);
 	}
 
+	// 为新数据准备空间
 	Build(pin_state, chunk_state, 0, actual_append_count);
 
 #ifdef DEBUG
@@ -203,6 +204,7 @@ void TupleDataCollection::AppendUnified(TupleDataPinState &pin_state, TupleDataC
 	}
 #endif
 
+	// 写入
 	Scatter(chunk_state, new_chunk, append_sel, actual_append_count);
 
 #ifdef DEBUG
@@ -408,6 +410,7 @@ bool TupleDataCollection::Scan(TupleDataParallelScanState &gstate, TupleDataLoca
 	const auto segment_index_before = lstate.segment_index;
 	idx_t segment_index;
 	idx_t chunk_index;
+	// 这里一次从Global Segment中获取一个chunk
 	{
 		lock_guard<mutex> guard(gstate.lock);
 		if (!NextScanIndex(gstate.scan_state, segment_index, chunk_index)) {

@@ -2,6 +2,7 @@
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -28,7 +29,9 @@ PhysicalProjection::PhysicalProjection(vector<LogicalType> types, vector<unique_
 OperatorResultType PhysicalProjection::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
                                                GlobalOperatorState &gstate, OperatorState &state_p) const {
 	auto &state = (ProjectionState &)state_p;
+	std::cout << "PhysicalProjection::Execute input : " << input.ToString() << std::endl;
 	state.executor.Execute(input, chunk);
+	std::cout << "PhysicalProjection::Execute ouput : " << chunk.ToString() << std::endl;
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 

@@ -35,6 +35,7 @@
 
 #include <utility>
 #include <cmath>
+#include <iostream>
 
 namespace duckdb {
 
@@ -520,6 +521,7 @@ Value Value::DECIMAL(int64_t value, uint8_t width, uint8_t scale) {
 		break;
 	case PhysicalType::INT32:
 		result.value_.integer = value;
+		std::cout << "get final result int32 : " << value << std::endl;
 		break;
 	case PhysicalType::INT64:
 		result.value_.bigint = value;

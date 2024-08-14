@@ -169,9 +169,14 @@ void Binder::BindGeneratedColumns(BoundCreateTableInfo &info) {
 
 	// Create a new binder because we dont need (or want) these bindings in this scope
 	auto binder = Binder::CreateBinder(context);
+	// 针对新建的表创建一个Binding
 	binder->bind_context.AddGenericBinding(table_index, base.table, names, types);
+
+	// construct a ExpressionBinder
 	auto expr_binder = ExpressionBinder(*binder, context);
 	string ignore;
+
+	// get the binding
 	auto table_binding = binder->bind_context.GetBinding(base.table, ignore);
 	D_ASSERT(table_binding && ignore.empty());
 
@@ -254,6 +259,7 @@ static void ExtractDependencies(BoundCreateTableInfo &info) {
 unique_ptr<BoundCreateTableInfo> Binder::BindCreateTableInfo(unique_ptr<CreateInfo> info, SchemaCatalogEntry &schema) {
 	auto &base = (CreateTableInfo &)*info;
 	auto result = make_uniq<BoundCreateTableInfo>(schema, std::move(info));
+	std::cout << "CREATE TABLE from QUERY : " << !!base.query << std::endl;
 	if (base.query) {
 		// construct the result object
 		auto query_obj = Bind(*base.query);
@@ -286,14 +292,17 @@ unique_ptr<BoundCreateTableInfo> Binder::BindCreateTableInfo(unique_ptr<CreateIn
 		throw BinderException("Creating a table without physical (non-generated) columns is not supported");
 	}
 	// bind collations to detect any unsupported collation errors
+	// 绑定 校验器 检查各种不支持的问题
 	for (idx_t i = 0; i < base.columns.PhysicalColumnCount(); i++) {
 		auto &column = base.columns.GetColumnMutable(PhysicalIndex(i));
 		if (column.Type().id() == LogicalTypeId::VARCHAR) {
 			ExpressionBinder::TestCollation(context, StringType::GetCollation(column.Type()));
 		}
+		// 这里只针对一些复合类型做了下特殊处理
 		BindLogicalType(context, column.TypeMutable(), &result->schema.catalog);
 		// We add a catalog dependency
 		auto type_dependency = EnumType::GetCatalog(column.Type());
+		std::cout << "catalog dependency : " << !!type_dependency << std::endl;
 		if (type_dependency) {
 			// Only if the USER comes from a create type
 			result->dependencies.AddDependency(*type_dependency);

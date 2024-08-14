@@ -81,6 +81,7 @@ public:
 			memset(handle.Ptr() + Storage::BLOCK_SIZE - free_space_left, 0, free_space_left);
 		}
 		first_data->IncrementVersion();
+		std::cout << "PartialBlockForCheckpoint block_id : " << state.block_id << std::endl;
 		first_segment->ConvertToPersistent(&block_manager, state.block_id);
 		// Now that the page is persistent, update tail_segments to point to the
 		// newly persistent block.
@@ -119,6 +120,9 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 	block_id_t block_id = INVALID_BLOCK;
 	uint32_t offset_in_block = 0;
 
+	std::cout << "ColumnCheckpointState::FlushSegment : " << segment->stats.statistics.IsConstant() << std::endl;
+	std::cout << "Segment index : " << segment->index << " type :" << int(segment->segment_type) << " count : " << segment->count << std::endl;
+	// 根据ColumnSegment中的统计信息，如果当前segment中的数据为constant(该块中的数据值为统一值),则意味着不需要写入任何信息到disk，除了统计信息
 	if (!segment->stats.statistics.IsConstant()) {
 		// non-constant block
 		PartialBlockAllocation allocation = partial_block_manager.GetBlockAllocation(segment_size);
@@ -145,6 +149,7 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 				segment->Resize(Storage::BLOCK_SIZE);
 			}
 			D_ASSERT(offset_in_block == 0);
+			// ColumnSegment中的block，这里会先生成partial block
 			allocation.partial_block = make_uniq<PartialBlockForCheckpoint>(
 			    &column_data, segment.get(), *allocation.block_manager, allocation.state);
 		}

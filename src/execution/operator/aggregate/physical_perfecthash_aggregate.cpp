@@ -114,6 +114,7 @@ unique_ptr<LocalSinkState> PhysicalPerfectHashAggregate::GetLocalSinkState(Execu
 	return make_uniq<PerfectHashAggregateLocalState>(*this, context);
 }
 
+// 这里拆分成group chunk 和 aggregate input chunk,可以理解为聚合时的key和value列,这里Sink上的聚合是在local state上完成的
 SinkResultType PhysicalPerfectHashAggregate::Sink(ExecutionContext &context, GlobalSinkState &state,
                                                   LocalSinkState &lstate_p, DataChunk &input) const {
 	auto &lstate = lstate_p.Cast<PerfectHashAggregateLocalState>();
@@ -159,6 +160,7 @@ SinkResultType PhysicalPerfectHashAggregate::Sink(ExecutionContext &context, Glo
 //===--------------------------------------------------------------------===//
 // Combine
 //===--------------------------------------------------------------------===//
+// locked, merge local hash table 和 global hash table
 void PhysicalPerfectHashAggregate::Combine(ExecutionContext &context, GlobalSinkState &gstate_p,
                                            LocalSinkState &lstate_p) const {
 	auto &lstate = lstate_p.Cast<PerfectHashAggregateLocalState>();

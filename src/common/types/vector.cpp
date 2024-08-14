@@ -71,6 +71,7 @@ Vector::Vector(Vector &&other) noexcept
 void Vector::Reference(const Value &value) {
 	D_ASSERT(GetType().id() == value.type().id());
 	this->vector_type = VectorType::CONSTANT_VECTOR;
+	// 创建VectorBuffer实例，并提前分配好目标空间大小
 	buffer = VectorBuffer::CreateConstantVector(value.type());
 	auto internal_type = value.type().InternalType();
 	if (internal_type == PhysicalType::STRUCT) {
@@ -326,6 +327,7 @@ void Vector::SetValue(idx_t index, const Value &val) {
 		return;
 	}
 
+	std::cout << "Vector::SetValue internal type : " << int(GetType().InternalType()) << std::endl;
 	switch (GetType().InternalType()) {
 	case PhysicalType::BOOL:
 		((bool *)data)[index] = val.GetValueUnsafe<bool>();
@@ -338,6 +340,7 @@ void Vector::SetValue(idx_t index, const Value &val) {
 		break;
 	case PhysicalType::INT32:
 		((int32_t *)data)[index] = val.GetValueUnsafe<int32_t>();
+		std::cout << "INT32 : " << val.GetValueUnsafe<int32_t>() << std::endl;
 		break;
 	case PhysicalType::INT64:
 		((int64_t *)data)[index] = val.GetValueUnsafe<int64_t>();
@@ -700,6 +703,7 @@ static void TemplatedFlattenConstantVector(data_ptr_t data, data_ptr_t old_data,
 }
 
 void Vector::Flatten(idx_t count) {
+	std::cout << "Vector::Flatten : " << int(GetVectorType()) << std::endl;
 	switch (GetVectorType()) {
 	case VectorType::FLAT_VECTOR:
 		// already a flat vector

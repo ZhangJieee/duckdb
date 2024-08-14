@@ -24,13 +24,16 @@ VectorDataIndex ColumnDataCollectionSegment::AllocateVectorInternal(const Logica
 
 	auto internal_type = type.InternalType();
 	auto type_size = internal_type == PhysicalType::STRUCT ? 0 : GetTypeIdSize(internal_type);
+	// allocator中保存所有分配的block信息
 	allocator->AllocateData(GetDataSize(type_size) + ValidityMask::STANDARD_MASK_SIZE, meta_data.block_id,
 	                        meta_data.offset, chunk_state);
 	if (allocator->GetType() == ColumnDataAllocatorType::BUFFER_MANAGER_ALLOCATOR) {
+		// chunk_meta这里记录分配的block id
 		chunk_meta.block_ids.insert(meta_data.block_id);
 	}
 
 	auto index = vector_data.size();
+	// vector_data 记录所有分配的VectorMetaData
 	vector_data.push_back(meta_data);
 	return VectorDataIndex(index);
 }
@@ -92,6 +95,8 @@ void ColumnDataCollectionSegment::AllocateNewChunk() {
 	meta_data.count = 0;
 	meta_data.vector_data.reserve(types.size());
 	for (idx_t i = 0; i < types.size(); i++) {
+		// 这里同样会将vector meta data 的 index 写入到 chunk meta data 中,不过这里根据需要操作的列数量,将所有列申请到的vector data 实例记录到
+		// 一个chunk meta data 中
 		auto vector_idx = AllocateVector(types[i], meta_data);
 		meta_data.vector_data.push_back(vector_idx);
 	}
@@ -139,6 +144,8 @@ idx_t ColumnDataCollectionSegment::ReadVectorInternal(ChunkManagementState &stat
 
 	auto base_ptr = allocator->GetDataPointer(state, vdata.block_id, vdata.offset);
 	auto validity_data = GetValidityPointer(base_ptr, type_size);
+	std::cout << "ColumnDataCollectionSegment::ReadVectorInternal (!vdata.next_data.IsValid() && state.properties != ColumnDataScanProperties::DISALLOW_ZERO_COPY) : " << (!vdata.next_data.IsValid() && state.properties != ColumnDataScanProperties::DISALLOW_ZERO_COPY) << std::endl;
+	std::cout << "vdata.count : " << vdata.count << std::endl;
 	if (!vdata.next_data.IsValid() && state.properties != ColumnDataScanProperties::DISALLOW_ZERO_COPY) {
 		// no next data, we can do a zero-copy read of this vector
 		FlatVector::SetData(result, base_ptr);

@@ -8,6 +8,7 @@
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/storage/data_table.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -68,13 +69,19 @@ SinkResultType PhysicalUpdate::Sink(ExecutionContext &context, GlobalSinkState &
 	chunk.Flatten();
 	ustate.default_executor.SetChunk(chunk);
 
+	// chunk中的数据布局:
+	// 末位列为实际需要变更的目标行集合
+	// 前几列依次是需要更新的目标列,这里chunk中记录的列值为最终更新后的值
 	// update data in the base table
 	// the row ids are given to us as the last column of the child chunk
 	auto &row_ids = chunk.data[chunk.ColumnCount() - 1];
 	update_chunk.Reset();
 	update_chunk.SetCardinality(chunk);
 
+	std::cout << "PhysicalUpdate::Sink expressions : " << expressions.size() << std::endl;
 	for (idx_t i = 0; i < expressions.size(); i++) {
+		std::cout << "PhysicalUpdate::Sink expressions : " << expressions[i]->ToString() << std::endl;
+		std::cout << "PhysicalUpdate::Sink expressions type : " << int(expressions[i]->type) << std::endl;
 		if (expressions[i]->type == ExpressionType::VALUE_DEFAULT) {
 			// default expression, set to the default value of the column
 			ustate.default_executor.ExecuteExpression(columns[i].index, update_chunk.data[i]);
@@ -86,6 +93,7 @@ SinkResultType PhysicalUpdate::Sink(ExecutionContext &context, GlobalSinkState &
 		}
 	}
 
+	std::cout << "update_is_del_and_insert : " << update_is_del_and_insert << std::endl;
 	lock_guard<mutex> glock(gstate.lock);
 	if (update_is_del_and_insert) {
 		// index update or update on complex type, perform a delete and an append instead

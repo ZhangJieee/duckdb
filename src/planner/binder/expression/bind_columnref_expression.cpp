@@ -14,6 +14,7 @@
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/planner/expression_binder.hpp"
 #include "duckdb/planner/expression_binder/where_binder.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -228,6 +229,7 @@ unique_ptr<ParsedExpression> ExpressionBinder::CreateStructPack(ColumnRefExpress
 
 unique_ptr<ParsedExpression> ExpressionBinder::QualifyColumnName(ColumnRefExpression &colref, string &error_message) {
 	idx_t column_parts = colref.column_names.size();
+	std::cout << "ExpressionBinder::QualifyColumnName column name size : " << column_parts << std::endl;
 	// column names can have an arbitrary amount of dots
 	// here is how the resolution works:
 	if (column_parts == 1) {
@@ -247,6 +249,7 @@ unique_ptr<ParsedExpression> ExpressionBinder::QualifyColumnName(ColumnRefExpres
 		// -> part1 is a table, part2 is a column
 		// -> part1 is a column, part2 is a property of that column (i.e. struct_extract)
 
+		std::cout << "column parts : " << colref.column_names[0] << "." << colref.column_names[1] << std::endl;
 		// first check if part1 is a table, and part2 is a standard column
 		if (binder.HasMatchingBinding(colref.column_names[0], colref.column_names[1], error_message)) {
 			// it is! return the colref directly
@@ -327,6 +330,7 @@ unique_ptr<ParsedExpression> ExpressionBinder::QualifyColumnName(ColumnRefExpres
 }
 
 BindResult ExpressionBinder::BindExpression(ColumnRefExpression &colref_p, idx_t depth) {
+	std::cout << "ExpressionBinder::BindExpression binder.GetBindingMode() : " << int(binder.GetBindingMode()) << std::endl;
 	if (binder.GetBindingMode() == BindingMode::EXTRACT_NAMES) {
 		return BindResult(make_uniq<BoundConstantExpression>(Value(LogicalType::SQLNULL)));
 	}
@@ -359,6 +363,7 @@ BindResult ExpressionBinder::BindExpression(ColumnRefExpression &colref_p, idx_t
 	BindResult result;
 
 	auto found_lambda_binding = false;
+	std::cout << "ExpressionBinder::BindExpression lambda_bindings : " << !!lambda_bindings << std::endl;
 	if (lambda_bindings) {
 		for (idx_t i = 0; i < lambda_bindings->size(); i++) {
 			if (table_name == (*lambda_bindings)[i].alias) {
@@ -369,6 +374,7 @@ BindResult ExpressionBinder::BindExpression(ColumnRefExpression &colref_p, idx_t
 		}
 	}
 
+	std::cout << "ExpressionBinder::BindExpression found_lambda_binding : " << found_lambda_binding << std::endl;
 	if (!found_lambda_binding) {
 		if (binder.macro_binding && table_name == binder.macro_binding->alias) {
 			result = binder.macro_binding->Bind(colref, depth);

@@ -30,16 +30,20 @@ PartitionableHashTable::PartitionableHashTable(ClientContext &context, Allocator
 		payload_subset.Initialize(allocator, payload_types);
 	}
 
+	// 根据分区数初始化sel_vectors
 	for (hash_t r = 0; r < partition_info.n_partitions; r++) {
 		sel_vectors[r].Initialize();
 	}
 
+	// 这里行的总大小 = group type size的总和 + payload size的总和
 	RowLayout layout;
 	layout.Initialize(group_types, AggregateObject::CreateAggregateObjects(bindings));
 	tuple_size = layout.GetRowWidth();
+	std::cout << "row width : " << tuple_size << std::endl;
 }
 
 HtEntryType PartitionableHashTable::GetHTEntrySize() {
+	// 确认一个HT中至少存放一个Vector数据
 	// we need at least STANDARD_VECTOR_SIZE entries to fit in the hash table
 	if (GroupedAggregateHashTable::GetMaxCapacity(HtEntryType::HT_WIDTH_32, tuple_size) < STANDARD_VECTOR_SIZE) {
 		return HtEntryType::HT_WIDTH_64;
@@ -55,6 +59,8 @@ idx_t PartitionableHashTable::ListAddChunk(HashTableList &list, DataChunk &group
 		idx_t new_capacity = GroupedAggregateHashTable::InitialCapacity();
 		if (!list.empty()) {
 			new_capacity = list.back()->Capacity();
+			// 这里如果追加数据量后到达一个HT可以容纳的最大值,则考虑将更早的HT进行空间释放,unpinned,在后续的scan时候会在load in mem
+			// 这里会将当前的HT cap作为参考初始化下一个HT
 			// early release first part of ht and prevent adding of more data
 			list.back()->Finalize();
 		}
@@ -66,6 +72,7 @@ idx_t PartitionableHashTable::ListAddChunk(HashTableList &list, DataChunk &group
 
 idx_t PartitionableHashTable::AddChunk(DataChunk &groups, DataChunk &payload, bool do_partition,
                                        const vector<idx_t> &filter) {
+	// Hash(key)
 	groups.Hash(hashes);
 
 	// we partition when we are asked to or when the unpartitioned ht runs out of space
@@ -73,6 +80,7 @@ idx_t PartitionableHashTable::AddChunk(DataChunk &groups, DataChunk &payload, bo
 		Partition();
 	}
 
+	// 未分区前数据会记录到unpartitioned_hts中
 	if (!IsPartitioned()) {
 		return ListAddChunk(unpartitioned_hts, groups, hashes, payload, filter);
 	}
@@ -87,6 +95,7 @@ idx_t PartitionableHashTable::AddChunk(DataChunk &groups, DataChunk &payload, bo
 	hashes.Flatten(groups.size());
 	auto hashes_ptr = FlatVector::GetData<hash_t>(hashes);
 
+	// 确认每行数据所在分区号
 	// Determine for every partition how much data will be sinked into it
 	for (idx_t i = 0; i < groups.size(); i++) {
 		auto partition = partition_info.GetHashPartition(hashes_ptr[i]);
@@ -102,6 +111,7 @@ idx_t PartitionableHashTable::AddChunk(DataChunk &groups, DataChunk &payload, bo
 	}
 	D_ASSERT(total_count == groups.size());
 #endif
+	// 分区写入
 	idx_t group_count = 0;
 	for (hash_t r = 0; r < partition_info.n_partitions; r++) {
 		group_subset.Slice(groups, sel_vectors[r], sel_vector_sizes[r]);
@@ -122,8 +132,10 @@ void PartitionableHashTable::Partition() {
 	D_ASSERT(radix_partitioned_hts.empty());
 	D_ASSERT(partition_info.n_partitions > 1);
 
+	// 初始化分区HT
 	vector<GroupedAggregateHashTable *> partition_hts(partition_info.n_partitions);
 	radix_partitioned_hts.resize(partition_info.n_partitions);
+	// 遍历原HT将数据repartition到分区HT
 	for (auto &unpartitioned_ht : unpartitioned_hts) {
 		for (idx_t r = 0; r < partition_info.n_partitions; r++) {
 			radix_partitioned_hts[r].push_back(make_uniq<GroupedAggregateHashTable>(
@@ -134,6 +146,7 @@ void PartitionableHashTable::Partition() {
 		unpartitioned_ht.reset();
 	}
 	unpartitioned_hts.clear();
+	// 标记已分区
 	is_partitioned = true;
 }
 

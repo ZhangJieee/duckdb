@@ -6,6 +6,7 @@
 namespace duckdb {
 
 unique_ptr<LogicalOperator> Binder::CreatePlan(BoundExpressionListRef &ref) {
+	// 初始化LogicalDummyScan实例
 	auto root = make_uniq_base<LogicalOperator, LogicalDummyScan>(GenerateTableIndex());
 	// values list, first plan any subqueries in the list
 	for (auto &expr_list : ref.values) {

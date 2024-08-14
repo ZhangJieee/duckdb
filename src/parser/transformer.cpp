@@ -5,6 +5,7 @@
 #include "duckdb/parser/tableref/emptytableref.hpp"
 #include "duckdb/parser/query_node/select_node.hpp"
 #include "duckdb/parser/parser_options.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -40,9 +41,11 @@ void Transformer::Clear() {
 
 bool Transformer::TransformParseTree(duckdb_libpgquery::PGList *tree, vector<unique_ptr<SQLStatement>> &statements) {
 	InitializeStackCheck();
+	std::cout << "sql -> paresd tree length : " << tree->length << std::endl;
 	for (auto entry = tree->head; entry != nullptr; entry = entry->next) {
 		Clear();
 		auto n = (duckdb_libpgquery::PGNode *)entry->data.ptr_value;
+		std::cout << "PGNode type : " << int(n->type) << std::endl;
 		auto stmt = TransformStatement(n);
 		D_ASSERT(stmt);
 		if (HasPivotEntries()) {
@@ -127,8 +130,10 @@ unique_ptr<SQLStatement> Transformer::TransformStatementInternal(duckdb_libpgque
 	switch (stmt->type) {
 	case duckdb_libpgquery::T_PGRawStmt: {
 		auto raw_stmt = (duckdb_libpgquery::PGRawStmt *)stmt;
+		std::cout << "current T_PGRawStmt, get raw_stmt->stmt.type : " << int(raw_stmt->stmt->type) << std::endl;
 		auto result = TransformStatement(raw_stmt->stmt);
 		if (result) {
+			std::cout << "raw_stmt.stmt_location : " << raw_stmt->stmt_location << '\t' << "raw_stmt.stmt_len : " << raw_stmt->stmt_len << std::endl;
 			result->stmt_location = raw_stmt->stmt_location;
 			result->stmt_length = raw_stmt->stmt_len;
 		}

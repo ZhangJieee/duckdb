@@ -19,12 +19,15 @@ PhysicalResultCollector::PhysicalResultCollector(PreparedStatementData &data)
 unique_ptr<PhysicalResultCollector> PhysicalResultCollector::GetResultCollector(ClientContext &context,
                                                                                 PreparedStatementData &data) {
 	if (!PhysicalPlanGenerator::PreserveInsertionOrder(context, *data.plan)) {
+		std::cout << "construct PhysicalMaterializedCollector Pipeline Sink true" << std::endl;
 		// the plan is not order preserving, so we just use the parallel materialized collector
 		return make_uniq_base<PhysicalResultCollector, PhysicalMaterializedCollector>(data, true);
 	} else if (!PhysicalPlanGenerator::UseBatchIndex(context, *data.plan)) {
+		std::cout << "construct PhysicalMaterializedCollector Pipeline Sink false" << std::endl;
 		// the plan is order preserving, but we cannot use the batch index: use a single-threaded result collector
 		return make_uniq_base<PhysicalResultCollector, PhysicalMaterializedCollector>(data, false);
 	} else {
+		std::cout << "construct PhysicalBatchCollector Pipeline Sink" << std::endl;
 		// we care about maintaining insertion order and the sources all support batch indexes
 		// use a batch collector
 		return make_uniq_base<PhysicalResultCollector, PhysicalBatchCollector>(data);
@@ -43,10 +46,14 @@ void PhysicalResultCollector::BuildPipelines(Pipeline &current, MetaPipeline &me
 
 	// single operator: the operator becomes the data source of the current pipeline
 	auto &state = meta_pipeline.GetState();
+	// 设置 Pipeline 的数据source,数据从source获取，流向sink(就是该函数的入参 - current)
 	state.SetPipelineSource(current, *this);
 
 	// we create a new pipeline starting from the child
+	// 创建Pipeline (data source) 到 Pipeline (data sink)中,作为其的child
 	auto &child_meta_pipeline = meta_pipeline.CreateChildMetaPipeline(current, *this);
+	// CreatePlan(LogicalProjection&) return => (PhysicalTableScan*)plan
+	std::cout << "PhysicalResultCollector : " << int(plan.type) << std::endl;
 	child_meta_pipeline.Build(plan);
 }
 

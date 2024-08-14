@@ -86,6 +86,7 @@ DuckTableEntry::DuckTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, Bou
 				if (unique.is_primary_key) {
 					constraint_type = IndexConstraintType::PRIMARY;
 				}
+				std::cout << "DuckTableEntry::DuckTableEntry info.indexes.empty() : " << info.indexes.empty() << std::endl;
 				if (info.indexes.empty()) {
 					AddDataTableIndex(*storage, columns, unique.keys, constraint_type);
 				} else {

@@ -29,6 +29,7 @@ void Event::Finish() {
 	FinishEvent();
 	finished = true;
 	// finished processing the pipeline, now we can schedule pipelines that depend on this pipeline
+	// 当前pipeline执行完后,查看是否存在依赖其执行的parent节点,并同步完成信息
 	for (auto &parent_entry : parents) {
 		auto parent = parent_entry.lock();
 		if (!parent) { // LCOV_EXCL_START

@@ -17,6 +17,7 @@
 #include "duckdb/transaction/duck_transaction.hpp"
 #include "duckdb/storage/table/append_state.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -84,16 +85,19 @@ idx_t RowGroup::GetColumnCount() const {
 
 ColumnData &RowGroup::GetColumn(idx_t c) {
 	D_ASSERT(c < columns.size());
+	std::cout << "RowGroup is_loaded : " << !is_loaded << std::endl;
 	if (!is_loaded) {
 		// not being lazy loaded
 		D_ASSERT(columns[c]);
 		return *columns[c];
 	}
+	std::cout << "RowGroup is_loaded[c] : " << !!is_loaded[c] << std::endl;
 	if (is_loaded[c]) {
 		D_ASSERT(columns[c]);
 		return *columns[c];
 	}
 	lock_guard<mutex> l(row_group_lock);
+	std::cout << "RowGroup columns[c] : " << !!columns[c] << std::endl;
 	if (columns[c]) {
 		D_ASSERT(is_loaded[c]);
 		return *columns[c];
@@ -101,9 +105,11 @@ ColumnData &RowGroup::GetColumn(idx_t c) {
 	if (column_pointers.size() != columns.size()) {
 		throw InternalException("Lazy loading a column but the pointer was not set");
 	}
+	std::cout << "get column data --> Deserialize" << std::endl;
 	auto &block_manager = collection.GetBlockManager();
 	auto &types = collection.GetTypes();
 	auto &block_pointer = column_pointers[c];
+	// 这里从磁盘上读目标col的某个block
 	MetaBlockReader column_data_reader(block_manager, block_pointer.block_id);
 	column_data_reader.offset = block_pointer.offset;
 	this->columns[c] =
@@ -133,6 +139,8 @@ void RowGroup::InitializeEmpty(const vector<LogicalType> &types) {
 }
 
 void ColumnScanState::Initialize(const LogicalType &type) {
+	std::cout << "ColumnScanState initialize type : " << int(type.id()) << std::endl;
+	std::cout << "ColumnScanState initialize physical type : " << int(type.InternalType()) << std::endl;
 	if (type.id() == LogicalTypeId::VALIDITY) {
 		// validity - nothing to initialize
 		return;
@@ -368,13 +376,16 @@ bool RowGroup::CheckZonemapSegments(CollectionScanState &state) {
 		D_ASSERT(entry.first < column_ids.size());
 		auto column_idx = entry.first;
 		auto base_column_idx = column_ids[column_idx];
+		// 这里判断filter中指定的 col 条件是否可直接过滤当前Segment
 		bool read_segment = GetColumn(base_column_idx).CheckZonemap(state.column_scans[column_idx], *entry.second);
 		if (!read_segment) {
+			// 当前Segment无目标数据，切下一个Segment
 			idx_t target_row =
 			    state.column_scans[column_idx].current->start + state.column_scans[column_idx].current->count;
 			D_ASSERT(target_row >= this->start);
 			D_ASSERT(target_row <= this->start + this->count);
 			idx_t target_vector_index = (target_row - this->start) / STANDARD_VECTOR_SIZE;
+			// TODO 如果当前Segment的数据没有完全填充一个Vector,这里返回true?,true表示会扫该Segment获取满足Filter的数据
 			if (state.vector_index == target_vector_index) {
 				// we can't skip any full vectors because this segment contains less than a full vector
 				// for now we just bail-out
@@ -384,6 +395,7 @@ bool RowGroup::CheckZonemapSegments(CollectionScanState &state) {
 				// exceedingly rare
 				return true;
 			}
+			// vector_index 切到下一个Segment的起始index
 			while (state.vector_index < target_vector_index) {
 				NextVector(state);
 			}
@@ -407,8 +419,12 @@ void RowGroup::TemplatedScan(TransactionData transaction, CollectionScanState &s
 			return;
 		}
 		idx_t current_row = state.vector_index * STANDARD_VECTOR_SIZE;
+		std::cout << "RowGroup::TemplatedScan max row group row : " << state.max_row_group_row << std::endl;
+		std::cout << "RowGroup::TemplatedScan current row : " << current_row << std::endl;
 		auto max_count = MinValue<idx_t>(STANDARD_VECTOR_SIZE, state.max_row_group_row - current_row);
+		std::cout << "RowGroup::TemplatedScan max_count : " << max_count << std::endl;
 
+		// 根据filter指定的 col 条件 确认当前RowGroup中的需要scan的Vector
 		//! first check the zonemap if we have to scan this partition
 		if (!CheckZonemapSegments(state)) {
 			continue;
@@ -418,7 +434,8 @@ void RowGroup::TemplatedScan(TransactionData transaction, CollectionScanState &s
 		SelectionVector valid_sel(STANDARD_VECTOR_SIZE);
 		if (TYPE == TableScanType::TABLE_SCAN_REGULAR) {
 			count = state.row_group->GetSelVector(transaction, state.vector_index, valid_sel, max_count);
-			if (count == 0) {
+			std::cout << "RowGroup::TemplatedScan count: " << count << std::endl;
+			    if (count == 0) {
 				// nothing to scan for this vector, skip the entire vector
 				NextVector(state);
 				continue;
@@ -436,8 +453,11 @@ void RowGroup::TemplatedScan(TransactionData transaction, CollectionScanState &s
 		}
 		if (count == max_count && !table_filters) {
 			// scan all vectors completely: full scan without deletions or table filters
+			std::cout << "column_ids size : " << column_ids.size() << std::endl;
 			for (idx_t i = 0; i < column_ids.size(); i++) {
 				auto column = column_ids[i];
+				std::cout << "column id : " << column << std::endl;
+				std::cout << "COLUMN_IDENTIFIER_ROW_ID : " << COLUMN_IDENTIFIER_ROW_ID << std::endl;
 				if (column == COLUMN_IDENTIFIER_ROW_ID) {
 					// scan row id
 					D_ASSERT(result.data[i].GetType().InternalType() == ROW_TYPE);
@@ -449,6 +469,7 @@ void RowGroup::TemplatedScan(TransactionData transaction, CollectionScanState &s
 						                       ALLOW_UPDATES);
 					} else {
 						col_data.Scan(transaction, state.vector_index, state.column_scans[i], result.data[i]);
+						std::cout << "RowGroup::TemplatedScan : " << result.data[i].ToString() << std::endl;
 					}
 				}
 			}
@@ -526,7 +547,9 @@ void RowGroup::TemplatedScan(TransactionData transaction, CollectionScanState &s
 			D_ASSERT(approved_tuple_count > 0);
 			count = approved_tuple_count;
 		}
+		std::cout << "RowGroup::TemplatedScan before set cardinality: " << result.ToString() << std::endl;
 		result.SetCardinality(count);
+		std::cout << "RowGroup::TemplatedScan after set cardinality: " << result.ToString() << std::endl;
 		state.vector_index++;
 		break;
 	}
@@ -572,6 +595,7 @@ idx_t RowGroup::GetSelVector(TransactionData transaction, idx_t vector_idx, Sele
 	if (!info) {
 		return max_count;
 	}
+	std::cout << "RowGroup GetSelVector chunk info type : " << int(info->type) << std::endl;
 	return info->GetSelVector(transaction, sel_vector, max_count);
 }
 
@@ -590,6 +614,7 @@ bool RowGroup::Fetch(TransactionData transaction, idx_t row) {
 	D_ASSERT(row < this->count);
 	lock_guard<mutex> lock(row_group_lock);
 
+	// row -> row vector index
 	idx_t vector_index = row / STANDARD_VECTOR_SIZE;
 	auto info = GetChunkInfo(vector_index);
 	if (!info) {
@@ -601,6 +626,7 @@ bool RowGroup::Fetch(TransactionData transaction, idx_t row) {
 void RowGroup::FetchRow(TransactionData transaction, ColumnFetchState &state, const vector<column_t> &column_ids,
                         row_t row_id, DataChunk &result, idx_t result_idx) {
 	for (idx_t col_idx = 0; col_idx < column_ids.size(); col_idx++) {
+		std::cout << "RowGroup::FetchRow column_ids : " << column_ids[col_idx] << std::endl;
 		auto column = column_ids[col_idx];
 		if (column == COLUMN_IDENTIFIER_ROW_ID) {
 			// row id column: fill in the row ids
@@ -619,15 +645,17 @@ void RowGroup::FetchRow(TransactionData transaction, ColumnFetchState &state, co
 void RowGroup::AppendVersionInfo(TransactionData transaction, idx_t count) {
 	idx_t row_group_start = this->count.load();
 	idx_t row_group_end = row_group_start + count;
-	if (row_group_end > RowGroup::ROW_GROUP_SIZE) {
+	    if (row_group_end > RowGroup::ROW_GROUP_SIZE) {
 		row_group_end = RowGroup::ROW_GROUP_SIZE;
 	}
 	lock_guard<mutex> lock(row_group_lock);
 
 	// create the version_info if it doesn't exist yet
+	std::cout << "RowGroup::AppendVersionInfo version_info : " << !!version_info << std::endl;
 	if (!version_info) {
 		version_info = make_shared<VersionNode>();
 	}
+	std::cout << "RowGroup::AppendVersionInfo row_group_start : " << row_group_start << "\t row_group_end : " << row_group_end << std::endl;
 	idx_t start_vector_idx = row_group_start / STANDARD_VECTOR_SIZE;
 	idx_t end_vector_idx = (row_group_end - 1) / STANDARD_VECTOR_SIZE;
 	for (idx_t vector_idx = start_vector_idx; vector_idx <= end_vector_idx; vector_idx++) {
@@ -643,8 +671,10 @@ void RowGroup::AppendVersionInfo(TransactionData transaction, idx_t count) {
 		} else {
 			// part of a vector is encapsulated: append to that part
 			ChunkVectorInfo *info;
+			std::cout  << "version_info->info[vector_idx] : " << !!version_info->info[vector_idx] << std::endl;
 			if (!version_info->info[vector_idx]) {
 				// first time appending to this vector: create new info
+				std::cout << "RowGroup start : " << this->start << std::endl;
 				auto insert_info = make_uniq<ChunkVectorInfo>(this->start + vector_idx * STANDARD_VECTOR_SIZE);
 				info = insert_info.get();
 				version_info->info[vector_idx] = std::move(insert_info);
